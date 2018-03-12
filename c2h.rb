@@ -1,16 +1,24 @@
 #! /bin/ruby
 
+#
+# Dependencies:
+#   https://github.com/minimagick/minimagick
+#   https://www.imagemagick.org/ -- Must choose "install legacy components"
+#
+
 require 'optparse'
 require 'ostruct'
 require 'pathname'
 require 'date'
-require 'erb'
 
 #
 # ----------------------------------------------------------------------
 # Settings
 # ----------------------------------------------------------------------
 #
+
+$thumbWidth = 320
+$thumbHeight = 240
 
 #
 # ----------------------------------------------------------------------
@@ -25,6 +33,9 @@ class CmdLine
     options.outputDirectory = ""
     options.me = nil
     options.senderIdMap = {}
+    options.thumbs = false
+    options.copyMedia = true
+    options.verbose = 0
 
     opt_parser = OptionParser.new do |opts|
       opts.banner = "Usage: c2h.rb [options]"
@@ -43,6 +54,15 @@ class CmdLine
           options.senderIdMap[senderId] = name
         }
       end
+      opts.on("-t", "--thumbnails", TrueClass, "Embed thumbnails (requires mini_magick).") do |t|
+        options.thumbs = t
+      end
+      opts.on("-c", "--[no-]copyMedia", "Copy media files.") do |c|
+        options.copyMedia = c
+      end
+      opts.on("-v", "--verbose", "Increase verbosity.") do
+        options.verbose = options.verbose + 1
+      end
       opts.on_tail("-h", "--help", "Show this message.") do
         puts opts
         exit
@@ -54,15 +74,19 @@ class CmdLine
   end
 end
 
-options = CmdLine.parse(ARGV)
+$options = CmdLine.parse(ARGV)
 
-if options.inputDirectory.empty? or options.outputDirectory.empty?
+if $options.inputDirectory.empty? or $options.outputDirectory.empty?
   CmdLine.parse(["-h"]) # exits
 end
 
-inputDir = Pathname.new(options.inputDirectory)
-outputDir = Pathname.new(options.outputDirectory)
-chatTxtFileName = inputDir.join("_chat.txt")
+if $options.thumbs
+  require 'mini_magick'
+end
+
+$inputDir = Pathname.new($options.inputDirectory)
+$outputDir = Pathname.new($options.outputDirectory)
+chatTxtFileName = $inputDir.join("_chat.txt")
 
 if !chatTxtFileName.readable?
   puts "Oops: \"" + chatTxtFileName.to_s + "\" does not exist or is not readable."
@@ -73,12 +97,12 @@ end
 # Create output directory if it does not exist.
 #
 
-if !outputDir.directory? and !outputDir.exist?
-  outputDir.mkdir()
+if !$outputDir.directory? and !$outputDir.exist?
+  $outputDir.mkdir()
 end
 
-if !outputDir.directory?
-  puts "Oops: \"" + outputDir.to_s + "\" is not a directory."
+if !$outputDir.directory?
+  puts "Oops: \"" + $outputDir.to_s + "\" is not a directory."
   exit
 end
 
@@ -88,12 +112,12 @@ end
 # file.
 #
 
-if outputDir.directory?
-  contents = Dir.entries(outputDir)
+if $outputDir.directory?
+  contents = Dir.entries($outputDir)
   contents.delete(".")
   contents.delete("..")
   if !contents.empty? and !contents.include?("index.html")
-    puts "Oops: \"" + outputDir.to_s + "\" is not empty."
+    puts "Oops: \"" + $outputDir.to_s + "\" is not empty."
     exit
   end
 end
@@ -116,8 +140,9 @@ chatTxtFile.close
 # Message lines are separated by CR LF.
 #
 
+messageCount = 0
 messages = Hash.new
-senderIds = Hash.new
+$senderIds = Hash.new
 
 chatTxt.split("\r\n").each { |messageLine|
   #
@@ -127,14 +152,16 @@ chatTxt.split("\r\n").each { |messageLine|
   messageLine = messageLine.force_encoding("UTF-8")
 
   #
-  # Each message line starts with a "date, time:"
+  # Each message line starts with a "date, time:", sometimes preceded by a
+  # unicode character.
   #
 
-  timestampMatch = messageLine.match('^\d{2}.\d{2}.\d{2}, \d{2}:\d{2}:\d{2}:')
+  timestampMatch = messageLine.match('(\[)?(\d{2}.\d{2}.\d{2}, \d{2}:\d{2}:\d{2})(\])?(:)?')
   raise "Oops" if timestampMatch == nil
 
-  endOfTimestamp = timestampMatch.end(0)
-  timestampString = messageLine[0..endOfTimestamp-1].strip
+  beginOfTimestamp = timestampMatch.begin(2)
+  endOfTimestamp = timestampMatch.end(2)
+  timestampString = messageLine[beginOfTimestamp..endOfTimestamp-1].strip
   timestamp = DateTime.strptime(timestampString, "%d.%m.%y, %H:%M:%S")
 
   #
@@ -159,7 +186,7 @@ chatTxt.split("\r\n").each { |messageLine|
   # the comment is not exported.
   #
 
-  if attachmentMatch = message.match('([0-9A-Z-]+\.[a-z]+)\s<[^\s>]+>')
+  if attachmentMatch = message.match('([0-9A-Z-]+\.[a-z0-9]+)\s<[^\s>]+>')
     message = nil
     attachment = attachmentMatch[1]
   else
@@ -170,16 +197,16 @@ chatTxt.split("\r\n").each { |messageLine|
   # Index sender ids.
   #
 
-  if senderId and !senderIds.include?(senderId)
-    senderIds[senderId] = true
+  if senderId and !$senderIds.include?(senderId)
+    $senderIds[senderId] = true
 
-    if options.me and senderId.include?(options.me)
-      options.me = senderId
+    if $options.me and senderId.include?($options.me)
+      $options.me = senderId
     end
 
-    options.senderIdMap.keys.each { |key|
+    $options.senderIdMap.keys.each { |key|
       if senderId.include?(key)
-        options.senderIdMap[senderId] = options.senderIdMap[key]
+        $options.senderIdMap[senderId] = $options.senderIdMap[key]
       end
     }
   end
@@ -200,6 +227,8 @@ chatTxt.split("\r\n").each { |messageLine|
     "text" => message,
     "attachment" => attachment
   }
+
+  messageCount = messageCount + 1
 }
 
 #
@@ -207,8 +236,8 @@ chatTxt.split("\r\n").each { |messageLine|
 # choose one of them as "me."
 #
 
-if senderIds.size == 2 and options.me == nil
-  options.me = senderIds.values[0]
+if $senderIds.size == 2 and $options.me == nil
+  $options.me = $senderIds.values[0]
 end
 
 #
@@ -217,32 +246,40 @@ end
 # ----------------------------------------------------------------------
 #
 
-def uniToHtml(message)
+#
+# Replace non-ascii characters in a message with their HTML encoding.
+#
+
+def uniToHtml(messageText)
   html=""
   i=0
-  l=message.length
+  l=messageText.length
   s=0
   while i < l
-    if ! message[i].ascii_only?
-      cp = message[i].codepoints[0]
+    if ! messageText[i].ascii_only?
+      cp = messageText[i].codepoints[0]
       if s != i
-        html.concat(message[s..i-1])
+        html.concat(messageText[s..i-1])
       end
       html.concat("&#%d;" % cp)
       s = i + 1
     end
     i = i + 1
   end
-  return html.concat(message[s..-1])
+  return html.concat(messageText[s..-1])
 end
 
-def replaceUrlsWithLinks(message)
+#
+# Replace URLs in a message text with links to that URL.
+#
+
+def replaceUrlsWithLinks(messageText)
   s = 0
   result = ""
   urlRegex = "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
-  while urlMatch = message.match(urlRegex, s)
+  while urlMatch = messageText.match(urlRegex, s)
     if urlMatch.begin(0) > s
-      result.concat(message[s..urlMatch.begin(0)-1])
+      result.concat(messageText[s..urlMatch.begin(0)-1])
     end
     result.concat("<a href=\"")
     result.concat(urlMatch[0]);
@@ -251,11 +288,187 @@ def replaceUrlsWithLinks(message)
     result.concat("</a>")
     s = urlMatch.end(0)
   end
-  return result.concat(message[s..-1])
+  return result.concat(messageText[s..-1])
 end
 
-def formatMessageText(message)
-  return replaceUrlsWithLinks(uniToHtml(message))
+#
+# Format message content.
+#
+
+def formatMessageText(messageText)
+  return replaceUrlsWithLinks(uniToHtml(messageText))
+end
+
+#
+# Is this a message from "me"?
+#
+
+def isMyMessage(message)
+  return message["senderId"] == $options.me
+end
+
+#
+# Get CSS style to use for this message.
+#
+
+def getMsgClass(message)
+  return isMyMessage(message) ? "userMessage-Me" : "userMessage-Them"
+end
+
+#
+# Print senderId.
+#
+
+def printSenderId(file, message)
+  senderIdToPrint = message["senderId"]
+  if $options.senderIdMap.include?(senderIdToPrint)
+    senderIdToPrint = $options.senderIdMap[senderIdToPrint]
+  end
+  if $senderIds.size != 2 and !isMyMessage(message)
+    file.puts("<span class=\"senderId\">" + uniToHtml(senderIdToPrint) + "</span> ")
+  end
+end
+
+#
+# Scale image.
+#
+
+def scaleImage(width, height)
+  if width > $thumbWidth or height > $thumbHeight
+    widthScale = width.to_f / $thumbWidth.to_f
+    heightScale = height.to_f / $thumbHeight.to_f
+    scale = (widthScale > heightScale) ? widthScale : heightScale
+    newWidth = (width / scale).to_i
+    newHeight = (height / scale).to_i
+  else
+    newWidth = imageWidth
+    newHeight = imageHeight
+  end
+  return [newWidth, newHeight]
+end
+
+#
+# Process a regular user message.
+#
+
+def processRegularUserMessage(file, message)
+  file.puts(formatMessageText(message["text"]))
+end
+
+#
+# Process a message that is an image attachment.
+#
+
+def processImageAttachmentMessage(file, attachmentFileName, inputFileName)
+  #
+  # If the "thumbs" option is given, we check the image size, and scale
+  # large images down to our "thumbnail" size.
+  #
+
+  if !$options.thumbs
+    file.puts("<img src=\"#{attachmentFileName.to_s}\">")
+  else
+    image = MiniMagick::Image.open(inputFileName)
+    width, height = scaleImage(image.width, image.height)
+    file.puts("<a href=\"#{attachmentFileName.to_s}\">")
+    file.puts("<img width=\"#{width}\" height=\"#{height}\" src=\"" + attachmentFileName.to_s + "\">")
+    file.puts("</a>")
+  end
+end
+
+#
+# Process a message that is an audio attachment.
+#
+
+def processAudioAttachmentMessage(file, attachmentFileName, inputFileName)
+  file.puts("<audio controls=\"\">")
+  file.puts("<source src=\"#{attachmentFileName.to_s}\">")
+  file.puts("</audio>")
+end
+
+#
+# Process a message that is an audio attachment.
+#
+
+def processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
+  file.puts("<a href=\"#{attachmentFileName.to_s}\">")
+  file.puts("<video width=\"#{$thumbWidth}\" controls=\"\">")
+  file.puts("<source src=\"#{attachmentFileName.to_s}\">")
+  file.puts("</video>")
+  file.puts("</a>")
+end
+
+#
+# Process a message that is an attachment.
+#
+
+def processAttachmentMessage(file, message)
+  attachmentFileName = Pathname.new(message["attachment"])
+  attachmentFileType = attachmentFileName.extname[1..-1]
+
+  inputFileName = $inputDir.join(attachmentFileName)
+
+  if $options.copyMedia
+    outputFileName = $outputDir.join(attachmentFileName)
+    IO.copy_stream(inputFileName, outputFileName)
+  end
+
+  case (attachmentFileType)
+    when "jpg", "png" then
+      processImageAttachmentMessage(file, attachmentFileName, inputFileName)
+    when "mp4" then
+      processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
+    when "opus" then
+      processAudioAttachmentMessage(file, attachmentFileName, inputFileName)
+  end
+end
+
+#
+# Process a user message.
+#
+
+def processUserMessage(file, message)
+  msgClass = getMsgClass(message)
+  file.puts("<div class=\"overflow\">")
+  file.puts("<div class=\"#{msgClass} userMessage\">")
+
+  printSenderId(file, message)
+
+  if !message["attachment"]
+    processRegularUserMessage(file, message)
+  else
+    processAttachmentMessage(file, message)
+  end
+
+  file.puts("<div class=\"timestamp\">")
+  file.puts(message["timestamp"].strftime("%H:%M"))
+  file.puts("</div>")
+  file.puts("</div>")
+  file.puts("</div>")
+end
+
+#
+# Process a system message.
+#
+
+def processSystemMessage(file, message)
+  file.puts("<div class=\"systemMessage\">")
+  file.puts("<p align=\"center\">")
+  file.puts(uniToHtml(message["text"]))
+  file.puts("</p>")
+  file.puts("</div>")
+end
+
+#
+# Process a message.
+#
+
+def processMessage(file, message)
+  if message["senderId"]
+    processUserMessage(file, message)
+  else
+    processSystemMessage(file, message)
+  end
 end
 
 #
@@ -265,9 +478,13 @@ end
 scriptFileName = Pathname.new($0)
 scriptDirectory = scriptFileName.dirname
 cssBaseName = "c2h.css"
-IO.copy_stream(scriptDirectory.join(cssBaseName), outputDir.join(cssBaseName))
+IO.copy_stream(scriptDirectory.join(cssBaseName), $outputDir.join(cssBaseName))
 
-indexHtmlFileName = outputDir.join("index.html")
+#
+# Generate HTML.
+#
+
+indexHtmlFileName = $outputDir.join("index.html")
 indexHtmlFile = File.open(indexHtmlFileName, "w")
 indexHtmlFile.puts("<html>
 <head>
@@ -278,84 +495,12 @@ indexHtmlFile.puts("<html>
 messages.each_key { |date|
   timestamp = Date.strptime(date, "%Y-%m-%d")
   indexHtmlFile.puts("<hr>")
-  indexHtmlFile.puts("<div class=\"date\"><p align=\"center\">")
+  indexHtmlFile.puts("<div class=\"date\">")
   indexHtmlFile.puts(timestamp.strftime("%-d. %B %Y"))
-  indexHtmlFile.puts("</p></div>")
+  indexHtmlFile.puts("</div>")
   indexHtmlFile.puts("<hr>")
 
-  messages[date].each { |message|
-    #
-    # Is this a message from "me"?
-    #
-
-    isMyMessage = message["senderId"] == options.me
-
-    #
-    # Map senderId.
-    #
-
-    senderIdToPrint = message["senderId"]
-    if options.senderIdMap.include?(senderIdToPrint)
-      senderIdToPrint = options.senderIdMap[senderIdToPrint]
-    end
-
-    if message["senderId"] and !message["attachment"]
-      #
-      # Regular user message.
-      #
-
-      if isMyMessage
-        msgClass = "userMessage-Me"
-      else
-        msgClass = "userMessage-Them"
-      end
-
-      indexHtmlFile.puts("<div class=\"overflow\">")
-      indexHtmlFile.puts("<div class=\"#{msgClass} userMessage\">")
-
-      if senderIds.size != 2 and !isMyMessage
-        indexHtmlFile.puts("<b>" + uniToHtml(senderIdToPrint) + "</b> ")
-      end
-
-      indexHtmlFile.puts(formatMessageText(message["text"]))
-      indexHtmlFile.puts("<div class=\"timestamp\">")
-      indexHtmlFile.puts(message["timestamp"].strftime("%H:%M"))
-      indexHtmlFile.puts("</div>")
-      indexHtmlFile.puts("</div>")
-      indexHtmlFile.puts("</div>")
-    elsif message["senderId"] and message["attachment"]
-      #
-      # Attachment.
-      #
-
-      attachmentFileName = Pathname.new(message["attachment"])
-      attachmentFileType = attachmentFileName.extname[1..-1]
-
-      if attachmentFileType == "jpg" or attachmentFileType == "png"
-        inputFileName = inputDir.join(attachmentFileName)
-        outputFileName = outputDir.join(attachmentFileName)
-        # IO.copy_stream(inputFileName, outputFileName)
-        indexHtmlFile.puts("<div class=\"userMessage\">")
-
-        if senderIds.size != 2
-          indexHtmlFile.puts("<b>" + uniToHtml(senderIdToPrint) + "</b> ")
-        end
-
-        indexHtmlFile.puts("<img width=\"50%\" src=\"" + attachmentFileName.to_s + "\">")
-        indexHtmlFile.puts("</div>")
-      end
-    elsif !message["senderId"]
-      #
-      # System message.
-      #
-
-      indexHtmlFile.puts("<div class=\"systemMessage\">")
-      indexHtmlFile.puts("<p align=\"center\">")
-      indexHtmlFile.puts(uniToHtml(message["text"]))
-      indexHtmlFile.puts("</p>")
-      indexHtmlFile.puts("</div>")
-    end
-  }
+  messages[date].each { |message| processMessage(indexHtmlFile, message) }
 }
 
 indexHtmlFile.puts("</body>")
