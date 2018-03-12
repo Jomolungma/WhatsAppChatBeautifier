@@ -4,6 +4,13 @@ require 'optparse'
 require 'ostruct'
 require 'pathname'
 require 'date'
+require 'erb'
+
+#
+# ----------------------------------------------------------------------
+# Settings
+# ----------------------------------------------------------------------
+#
 
 #
 # ----------------------------------------------------------------------
@@ -16,14 +23,25 @@ class CmdLine
     options = OpenStruct.new
     options.inputDirectory = ""
     options.outputDirectory = ""
+    options.me = nil
+    options.senderIdMap = {}
 
     opt_parser = OptionParser.new do |opts|
       opts.banner = "Usage: c2h.rb [options]"
-      opts.on("-i", "--inputDirectory DIR", "Directory containing _chat.txt.") do |i|
+      opts.on("-i", "--inputDirectory=DIR", "Directory containing _chat.txt.") do |i|
         options.inputDirectory = i
       end
-      opts.on("-o", "--outputDirectory DIR", "Output directory, will be created or cleaned.") do |o|
+      opts.on("-o", "--outputDirectory=DIR", "Output directory, will be created or cleaned.") do |o|
         options.outputDirectory = o
+      end
+      opts.on("--me=senderId", "Right-align messages by this sender.") do |me|
+        options.me = me
+      end
+      opts.on("--map=<senderId=name>,...", Array, "Map sender ids to proper names.") do |list|
+        list.each { |map|
+          senderId, name = map.split("=")
+          options.senderIdMap[senderId] = name
+        }
       end
       opts.on_tail("-h", "--help", "Show this message.") do
         puts opts
@@ -152,8 +170,18 @@ chatTxt.split("\r\n").each { |messageLine|
   # Index sender ids.
   #
 
-  if senderId
+  if senderId and !senderIds.include?(senderId)
     senderIds[senderId] = true
+
+    if options.me and senderId.include?(options.me)
+      options.me = senderId
+    end
+
+    options.senderIdMap.keys.each { |key|
+      if senderId.include?(key)
+        options.senderIdMap[senderId] = options.senderIdMap[key]
+      end
+    }
   end
 
   #
@@ -173,6 +201,15 @@ chatTxt.split("\r\n").each { |messageLine|
     "attachment" => attachment
   }
 }
+
+#
+# If there are only two sender ids, and the "me" option was not given,
+# choose one of them as "me."
+#
+
+if senderIds.size == 2 and options.me == nil
+  options.me = senderIds.values[0]
+end
 
 #
 # ----------------------------------------------------------------------
@@ -196,31 +233,96 @@ def uniToHtml(message)
     end
     i = i + 1
   end
-  html.concat(message[s..-1])
+  return html.concat(message[s..-1])
 end
+
+def replaceUrlsWithLinks(message)
+  s = 0
+  result = ""
+  urlRegex = "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
+  while urlMatch = message.match(urlRegex, s)
+    if urlMatch.begin(0) > s
+      result.concat(message[s..urlMatch.begin(0)-1])
+    end
+    result.concat("<a href=\"")
+    result.concat(urlMatch[0]);
+    result.concat("\">")
+    result.concat(urlMatch[0])
+    result.concat("</a>")
+    s = urlMatch.end(0)
+  end
+  return result.concat(message[s..-1])
+end
+
+def formatMessageText(message)
+  return replaceUrlsWithLinks(uniToHtml(message))
+end
+
+#
+# Copy style sheet file to output directory.
+#
+
+scriptFileName = Pathname.new($0)
+scriptDirectory = scriptFileName.dirname
+cssBaseName = "c2h.css"
+IO.copy_stream(scriptDirectory.join(cssBaseName), outputDir.join(cssBaseName))
 
 indexHtmlFileName = outputDir.join("index.html")
 indexHtmlFile = File.open(indexHtmlFileName, "w")
-indexHtmlFile.puts("<html>", "<body>")
+indexHtmlFile.puts("<html>
+<head>
+<link rel=\"stylesheet\" href=\"c2h.css\">
+</head>
+<body>")
 
 messages.each_key { |date|
   timestamp = Date.strptime(date, "%Y-%m-%d")
   indexHtmlFile.puts("<hr>")
-  indexHtmlFile.puts("<p align=\"center\">")
+  indexHtmlFile.puts("<div class=\"date\"><p align=\"center\">")
   indexHtmlFile.puts(timestamp.strftime("%-d. %B %Y"))
-  indexHtmlFile.puts("</p>")
+  indexHtmlFile.puts("</p></div>")
   indexHtmlFile.puts("<hr>")
 
   messages[date].each { |message|
+    #
+    # Is this a message from "me"?
+    #
+
+    isMyMessage = message["senderId"] == options.me
+
+    #
+    # Map senderId.
+    #
+
+    senderIdToPrint = message["senderId"]
+    if options.senderIdMap.include?(senderIdToPrint)
+      senderIdToPrint = options.senderIdMap[senderIdToPrint]
+    end
+
     if message["senderId"] and !message["attachment"]
       #
       # Regular user message.
       #
 
-      indexHtmlFile.puts("<p>")
-      indexHtmlFile.puts("<b>" + uniToHtml(message["senderId"]) + "</b> ")
-      indexHtmlFile.puts(uniToHtml(message["text"]))
-      indexHtmlFile.puts("</p>")
+      if isMyMessage
+        msgClass = "userMessage-Me"
+      else
+        msgClass = "userMessage-Them"
+      end
+
+      indexHtmlFile.puts("<div class=\"overflow\">")
+      indexHtmlFile.puts("<div class=\"#{msgClass} userMessage\">")
+
+      if senderIds.size != 2 and !isMyMessage
+        indexHtmlFile.puts("<b>" + uniToHtml(senderIdToPrint) + "</b> ")
+      end
+
+      indexHtmlFile.puts(formatMessageText(message["text"]))
+      indexHtmlFile.puts("<div class=\"timestamp\">")
+      indexHtmlFile.puts(message["timestamp"].strftime("%H:%M"))
+      indexHtmlFile.puts("</div>")
+      indexHtmlFile.puts("</div>")
+      indexHtmlFile.puts("</div>")
     elsif message["senderId"] and message["attachment"]
       #
       # Attachment.
@@ -233,19 +335,25 @@ messages.each_key { |date|
         inputFileName = inputDir.join(attachmentFileName)
         outputFileName = outputDir.join(attachmentFileName)
         # IO.copy_stream(inputFileName, outputFileName)
-        indexHtmlFile.puts("<p>")
-        indexHtmlFile.puts("<b>" + uniToHtml(message["senderId"]) + "</b><br>")
-        indexHtmlFile.puts("<img src=\"" + attachmentFileName.to_s + "\">")
-        indexHtmlFile.puts("</p>")
+        indexHtmlFile.puts("<div class=\"userMessage\">")
+
+        if senderIds.size != 2
+          indexHtmlFile.puts("<b>" + uniToHtml(senderIdToPrint) + "</b> ")
+        end
+
+        indexHtmlFile.puts("<img width=\"50%\" src=\"" + attachmentFileName.to_s + "\">")
+        indexHtmlFile.puts("</div>")
       end
     elsif !message["senderId"]
       #
       # System message.
       #
 
-      indexHtmlFile.puts("<p align=\"center\"><i>")
+      indexHtmlFile.puts("<div class=\"systemMessage\">")
+      indexHtmlFile.puts("<p align=\"center\">")
       indexHtmlFile.puts(uniToHtml(message["text"]))
-      indexHtmlFile.puts("</i></p>")
+      indexHtmlFile.puts("</p>")
+      indexHtmlFile.puts("</div>")
     end
   }
 }
