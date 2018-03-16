@@ -569,7 +569,9 @@ class HtmlOutputFile
     @file.puts(str)
   end
   def printHtmlHeader()
-    htmlTitle = uniToHtml($options.title)
+    if $options.title
+      htmlTitle = uniToHtml($options.title)
+    end
     puts("<html>")
     puts("<head>")
     if $options.title
