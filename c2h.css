@@ -4,6 +4,13 @@ body {
 span.senderId {
     font-weight: bold;
 }
+h1 {
+    font-weight: bold;
+    text-align: center;
+}
+dt {
+    font-weight: bold;
+}
 div.date {
     width: 20%;
     margin: auto;

@@ -31,11 +31,15 @@ class CmdLine
     options = OpenStruct.new
     options.inputDirectory = ""
     options.outputDirectory = ""
+    options.title = nil
     options.me = nil
     options.senderIdMap = {}
-    options.thumbs = false
+    options.thumbnails = false
     options.copyMedia = true
     options.verbose = 0
+    options.indexByDay = false
+    options.indexByMonth = false
+    options.indexByYear = false
 
     opt_parser = OptionParser.new do |opts|
       opts.banner = "Usage: c2h.rb [options]"
@@ -44,6 +48,9 @@ class CmdLine
       end
       opts.on("-o", "--outputDirectory=DIR", "Output directory, will be created or cleaned.") do |o|
         options.outputDirectory = o
+      end
+      opts.on("-t", "--title=Title", "Chat title.") do |t|
+        options.title = t
       end
       opts.on("--me=senderId", "Right-align messages by this sender.") do |me|
         options.me = me
@@ -54,11 +61,22 @@ class CmdLine
           options.senderIdMap[senderId] = name
         }
       end
-      opts.on("-t", "--thumbnails", TrueClass, "Embed thumbnails (requires mini_magick).") do |t|
-        options.thumbs = t
+      opts.on("-n", "--thumbnails", TrueClass, "Embed thumbnails (requires mini_magick).") do |t|
+        options.thumbnails = t
       end
       opts.on("-c", "--[no-]copyMedia", "Copy media files.") do |c|
         options.copyMedia = c
+      end
+      opts.on("-x", "--indexBy=[day,month,year]", "Create daily, monthly or annual index.") do |x|
+        if x.downcase == "day"
+          options.indexByDay = true
+        elsif x.downcase == "month"
+          options.indexByMonth = true
+        elsif x.downcase == "year"
+          options.indexByYear = true
+        else
+          raise "Invalid value for --indexBy option: \"#{x}\""
+        end
       end
       opts.on("-v", "--verbose", "Increase verbosity.") do
         options.verbose = options.verbose + 1
@@ -80,7 +98,7 @@ if $options.inputDirectory.empty? or $options.outputDirectory.empty?
   CmdLine.parse(["-h"]) # exits
 end
 
-if $options.thumbs
+if $options.thumbnails
   require 'mini_magick'
 end
 
@@ -143,6 +161,8 @@ chatTxtFile.close
 messageCount = 0
 messages = Hash.new
 $senderIds = Hash.new
+$allYears = Hash.new
+$allMonths = Hash.new
 
 chatTxt.split("\r\n").each { |messageLine|
   #
@@ -199,29 +219,24 @@ chatTxt.split("\r\n").each { |messageLine|
 
   if senderId and !$senderIds.include?(senderId)
     $senderIds[senderId] = true
-
-    if $options.me and senderId.include?($options.me)
-      $options.me = senderId
-    end
-
-    $options.senderIdMap.keys.each { |key|
-      if senderId.include?(key)
-        $options.senderIdMap[senderId] = $options.senderIdMap[key]
-      end
-    }
   end
 
   #
   # Index messages by "year-month-day"
   #
 
-  date=timestamp.strftime("%Y-%m-%d")
+  year=timestamp.strftime("%Y")
+  month=timestamp.strftime("%Y-%m")
+  day=timestamp.strftime("%Y-%m-%d")
 
-  if !messages.include?(date)
-    messages[date] = Array.new
+  $allYears[year] = true
+  $allMonths[month] = true
+
+  if !messages.include?(day)
+    messages[day] = Array.new
   end
 
-  messages[date] << {
+  messages[day] << {
     "timestamp" => timestamp,
     "senderId" => senderId,
     "text" => message,
@@ -237,8 +252,32 @@ chatTxt.split("\r\n").each { |messageLine|
 #
 
 if $senderIds.size == 2 and $options.me == nil
-  $options.me = $senderIds.values[0]
+  $options.me = $senderIds.keys[0]
 end
+
+#
+# Cleanse sender ids for "me" and "map".
+#
+
+$senderIds.each_key { |senderId|
+  if $options.me and senderId.include?($options.me)
+    $options.me = senderId
+  end
+
+  $options.senderIdMap.keys.each { |key|
+    if senderId.include?(key)
+      $options.senderIdMap[senderId] = $options.senderIdMap[key]
+    end
+  }
+}
+
+#
+# Get arrays of all years, months, days.
+#
+
+$allYears = $allYears.keys
+$allMonths = $allMonths.keys
+$allDays = messages.keys
 
 #
 # ----------------------------------------------------------------------
@@ -247,17 +286,35 @@ end
 #
 
 #
+# Format a date string "January 1, 2018".
+#
+
+def formatDay(date)
+  return date.strftime("%B %-d, %Y")
+end
+
+def formatMonth(date)
+  return date.strftime("%B")
+end
+
+def formatYear(date)
+  return date.strftime("%Y")
+end
+
+#
 # Replace non-ascii characters in a message with their HTML encoding.
 #
 
 def uniToHtml(messageText)
+  escapeCharacters="<>&"
   html=""
   i=0
   l=messageText.length
   s=0
   while i < l
-    if ! messageText[i].ascii_only?
-      cp = messageText[i].codepoints[0]
+    c = messageText[i]
+    if !c.ascii_only? or escapeCharacters.index(c)
+      cp = c.codepoints[0]
       if s != i
         html.concat(messageText[s..i-1])
       end
@@ -324,7 +381,18 @@ def printSenderId(file, message)
   if $options.senderIdMap.include?(senderIdToPrint)
     senderIdToPrint = $options.senderIdMap[senderIdToPrint]
   end
-  if $senderIds.size != 2 and !isMyMessage(message)
+
+  #
+  # Do not print sender id if:
+  # - There are only two participants to the chat. (In this case, if the
+  #   "--me" option was not given, one of them is chosen as "me".)
+  # - There are more than two participants to the chat and the message is
+  #   mine.
+  #
+
+  noSenderId = (($senderIds.size == 2) or isMyMessage(message))
+
+  if !noSenderId
     file.puts("<span class=\"senderId\">" + uniToHtml(senderIdToPrint) + "</span> ")
   end
 end
@@ -361,11 +429,11 @@ end
 
 def processImageAttachmentMessage(file, attachmentFileName, inputFileName)
   #
-  # If the "thumbs" option is given, we check the image size, and scale
+  # If the "thumbnails" option is given, we check the image size, and scale
   # large images down to our "thumbnail" size.
   #
 
-  if !$options.thumbs
+  if !$options.thumbnails
     file.puts("<img src=\"#{attachmentFileName.to_s}\">")
   else
     image = MiniMagick::Image.open(inputFileName)
@@ -484,25 +552,123 @@ IO.copy_stream(scriptDirectory.join(cssBaseName), $outputDir.join(cssBaseName))
 # Generate HTML.
 #
 
-indexHtmlFileName = $outputDir.join("index.html")
-indexHtmlFile = File.open(indexHtmlFileName, "w")
-indexHtmlFile.puts("<html>
-<head>
-<link rel=\"stylesheet\" href=\"c2h.css\">
-</head>
-<body>")
+class HtmlOutputFile
+  def initialize(name)
+    @fileName = $outputDir.join(name)
+    @file = File.open(@fileName, "w")
+    printHtmlHeader()
+  end
+  def get()
+    return @file
+  end
+  def close()
+    printHtmlFooter()
+    @file.close()
+  end
+  def puts(str)
+    @file.puts(str)
+  end
+  def printHtmlHeader()
+    htmlTitle = uniToHtml($options.title)
+    puts("<html>")
+    puts("<head>")
+    if $options.title
+      puts("<title>#{htmlTitle}</title>")
+    end
+    puts("<link rel=\"stylesheet\" href=\"c2h.css\">")
+    puts("</head>")
+    puts("<body>")
+    if $options.title
+      puts("<h1>#{htmlTitle}</h1>")
+    end
+  end
+  def printHtmlFooter()
+    puts("</body>")
+    puts("</html>")
+  end
+end
 
-messages.each_key { |date|
-  timestamp = Date.strptime(date, "%Y-%m-%d")
-  indexHtmlFile.puts("<hr>")
-  indexHtmlFile.puts("<div class=\"date\">")
-  indexHtmlFile.puts(timestamp.strftime("%-d. %B %Y"))
-  indexHtmlFile.puts("</div>")
-  indexHtmlFile.puts("<hr>")
+indexHtmlFileName = "index.html"
+indexHtmlFile = HtmlOutputFile.new(indexHtmlFileName)
 
-  messages[date].each { |message| processMessage(indexHtmlFile, message) }
+currentDay = nil
+currentMonth = nil
+currentYear = nil
+
+yearFile = nil
+monthFile = nil
+dayFile = nil
+
+if $options.indexByYear
+  indexHtmlFile.puts("<ul>")
+elsif $options.indexByMonth
+  indexHtmlFile.puts("<dl>")
+end
+
+activeFile = indexHtmlFile
+
+$allDays.each_index { |dayIndex|
+  today = $allDays[dayIndex]
+  timestamp = Date.strptime(today, "%Y-%m-%d")
+  messageYear = timestamp.strftime("%Y")
+  messageMonth = timestamp.strftime("%Y-%m")
+  messageDay = timestamp.strftime("%Y-%m-%d")
+
+  if $options.indexByYear
+    if messageYear != currentYear
+      if yearFile
+        yearFile.close()
+      end
+      yearFileName = "#{messageYear}.html"
+      yearFile = HtmlOutputFile.new(yearFileName)
+      yearString = formatYear(timestamp)
+      indexHtmlFile.puts("<li><a href=\"#{yearFileName}\">#{yearString}</a>")
+      activeFile = yearFile
+      currentYear = messageYear
+    end
+  elsif $options.indexByMonth
+    if messageMonth != currentMonth
+      if monthFile
+        monthFile.close()
+      end
+      monthFileName = "#{messageMonth}.html"
+      monthFile = HtmlOutputFile.new(monthFileName)
+      monthString = formatMonth(timestamp)
+      if messageYear != currentYear
+        indexHtmlFile.puts("<dt> #{messageYear}")
+        currentYear = messageYear
+      end
+      indexHtmlFile.puts("<dd><a href=\"#{monthFileName}\">#{monthString}</a></dd>")
+      activeFile = monthFile
+      currentMonth = messageMonth
+    end
+  end
+
+  activeFile.puts("<hr>")
+  activeFile.puts("<div class=\"date\">")
+  activeFile.puts(formatDay(timestamp))
+  activeFile.puts("</div>")
+  activeFile.puts("<hr>")
+
+  messages[today].each { |message| processMessage(activeFile.get(), message) }
 }
 
-indexHtmlFile.puts("</body>")
-indexHtmlFile.puts("</html>")
+if yearFile
+  yearFile.close()
+end
+
+if monthFile
+  monthFile.close()
+end
+
+if dayFile
+  dayFile.close()
+end
+
+if $options.indexByYear
+  indexHtmlFile.puts("</ul>")
+elsif $options.indexByMonth
+  indexHtmlFile.puts("</dl>")
+end
+
 indexHtmlFile.close()
