@@ -200,13 +200,15 @@ chatTxt.split("\r\n").each { |messageLine|
   end
 
   #
-  # For attachments, the message looks like "filename <attached>", where
-  # the string "attached" is localized. It looks like there is either
-  # text or an attachment, but not both. If an attachment has a comment,
-  # the comment is not exported.
+  # For attachments, the message looks like "filename [* n pages] <attached>",
+  # where the strings "attached" and "pages" are localized. The "n pages" is
+  # present for PDF attachments.
+  #
+  # There is either text or an attachment, but not both. If an attachment has a
+  # comment, the comment is not exported.
   #
 
-  if attachmentMatch = message.match('([0-9A-Z-]+\.[a-z0-9]+)\s<[^\s>]+>')
+  if attachmentMatch = message.match('([0-9A-Za-z\- ]+\.[A-Za-z0-9]+).*<[^\s>]+>')
     message = nil
     attachment = attachmentMatch[1]
   else
@@ -409,8 +411,8 @@ def scaleImage(width, height)
     newWidth = (width / scale).to_i
     newHeight = (height / scale).to_i
   else
-    newWidth = imageWidth
-    newHeight = imageHeight
+    newWidth = width
+    newHeight = height
   end
   return [newWidth, newHeight]
 end
@@ -459,11 +461,17 @@ end
 #
 
 def processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
-  file.puts("<a href=\"#{attachmentFileName.to_s}\">")
   file.puts("<video width=\"#{$thumbWidth}\" controls=\"\">")
   file.puts("<source src=\"#{attachmentFileName.to_s}\">")
   file.puts("</video>")
-  file.puts("</a>")
+end
+
+#
+# Process a generic attachment (e.g., a PDF file).
+#
+
+def processGenericAttachmentMessage(file, attachmentFileName, inputFileName)
+  file.puts("<a href=\"#{attachmentFileName.to_s}\">#{attachmentFileName.to_s}</a>")
 end
 
 #
@@ -488,6 +496,8 @@ def processAttachmentMessage(file, message)
       processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
     when "opus" then
       processAudioAttachmentMessage(file, attachmentFileName, inputFileName)
+    else
+      processGenericAttachmentMessage(file, attachmentFileName, inputFileName)
   end
 end
 
