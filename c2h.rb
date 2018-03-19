@@ -19,6 +19,8 @@ require 'date'
 
 $thumbWidth = 320
 $thumbHeight = 240
+$emojiWidth = 20
+$emojiHeight = 20
 
 #
 # ----------------------------------------------------------------------
@@ -37,9 +39,9 @@ class CmdLine
     options.thumbnails = false
     options.copyMedia = true
     options.verbose = 0
-    options.indexByDay = false
     options.indexByMonth = false
     options.indexByYear = false
+    options.emojiDir = nil
 
     opt_parser = OptionParser.new do |opts|
       opts.banner = "Usage: c2h.rb [options]"
@@ -64,19 +66,20 @@ class CmdLine
       opts.on("-n", "--thumbnails", TrueClass, "Embed thumbnails (requires mini_magick).") do |t|
         options.thumbnails = t
       end
-      opts.on("-c", "--[no-]copyMedia", "Copy media files.") do |c|
+      opts.on("--[no-]copyMedia", "Copy media files.") do |c|
         options.copyMedia = c
       end
-      opts.on("-x", "--indexBy=[day,month,year]", "Create daily, monthly or annual index.") do |x|
-        if x.downcase == "day"
-          options.indexByDay = true
-        elsif x.downcase == "month"
+      opts.on("-x", "--indexBy=[month,year]", "Create daily, monthly or annual index.") do |x|
+        if x.downcase == "month"
           options.indexByMonth = true
         elsif x.downcase == "year"
           options.indexByYear = true
         else
           raise "Invalid value for --indexBy option: \"#{x}\""
         end
+      end
+      opts.on("-e", "--emojiDir=directory", "Use emoji image files from this directory.") do |e|
+        options.emojiDir = e
       end
       opts.on("-v", "--verbose", "Increase verbosity.") do
         options.verbose = options.verbose + 1
@@ -138,6 +141,22 @@ if $outputDir.directory?
     puts "Oops: \"" + $outputDir.to_s + "\" is not empty."
     exit
   end
+end
+
+#
+# Gather list of emoji files if an emoji directory is given.
+#
+
+$emojiFiles = Hash.new
+
+if $options.emojiDir
+  $emojiDir = Pathname.new($options.emojiDir)
+  Dir.entries($emojiDir).each { |fileName|
+    if fileName[-4..-1] == ".png"
+      imageBaseName = fileName[0..-5]
+      $emojiFiles[imageBaseName] = false
+    end
+  }
 end
 
 #
@@ -325,7 +344,65 @@ def uniToHtml(messageText)
     end
     i = i + 1
   end
-  return html.concat(messageText[s..-1])
+  html.concat(messageText[s..-1])
+  html.gsub("\n", "<br>")
+end
+
+#
+# Replace emojis (after HTML encoding).
+#
+
+def eatConsecutiveUnicode(text)
+  codepoints = []
+  while md = text.match("^&#([0-9]+);")
+    codepoints << md[1].to_i
+    text = text[md.end(0)..-1]
+  end
+  return codepoints, text
+end
+
+def findLongestUnicodeEmojiSubsequence(codepoints)
+  basename=codepoints.join("_")
+  if codepoints.length > 0
+    basename=codepoints.join("_")
+    if $emojiFiles.include?(basename)
+      return codepoints.length
+    else
+      return findLongestUnicodeEmojiSubsequence(codepoints[0..-2])
+    end
+  else
+    return 0
+  end
+end
+
+def replaceEmojisWithImages(messageText)
+  output = ""
+  while i = messageText.index('&')
+    if i != 0
+      output.concat(messageText[0..i-1])
+    end
+    codepoints, remainder = eatConsecutiveUnicode(messageText[i..-1])
+    codepoints.delete_if { |cp| (cp >= 65024)  and (cp <= 65039)  } # Delete variation selectors.
+    codepoints.delete_if { |cp| (cp >= 127995) and (cp <= 127999) } # Delete skin tone modifiers.
+
+    while codepoints.length > 0
+      hexCodepoints = codepoints.map { |cp| sprintf("%x",cp) }      # Map to hexadecimal.
+      subLength = findLongestUnicodeEmojiSubsequence(hexCodepoints)
+      if subLength > 0
+        basename=hexCodepoints[0..subLength-1].join("_")
+        output.concat("<img width=\"#{$emojiWidth}\" height=\"#{$emojiHeight}\" src=\"#{basename}.png\">")
+        codepoints = codepoints[subLength..-1]
+        $emojiFiles[basename] = true
+      else
+        output.concat(sprintf("&#%d;", codepoints[0]))
+        codepoints = codepoints[1..-1]
+      end
+    end
+
+    messageText = remainder
+  end
+  output.concat(messageText)
+  return output
 end
 
 #
@@ -355,7 +432,7 @@ end
 #
 
 def formatMessageText(messageText)
-  return replaceUrlsWithLinks(uniToHtml(messageText))
+  return replaceEmojisWithImages(replaceUrlsWithLinks(uniToHtml(messageText)))
 end
 
 #
@@ -684,3 +761,18 @@ elsif $options.indexByMonth
 end
 
 indexHtmlFile.close()
+
+#
+# Copy all used emoji files.
+#
+
+if $emojiFiles
+  $emojiFiles.each { |fileName, isUsed|
+    if isUsed
+      emojiBaseName = "#{fileName}.png"
+      inputFileName = $emojiDir.join(emojiBaseName)
+      outputFileName = $outputDir.join(emojiBaseName)
+      IO.copy_stream(inputFileName, outputFileName)
+    end
+  }
+end
