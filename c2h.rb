@@ -659,6 +659,7 @@ class HtmlOutputFile
     if $options.title
       htmlTitle = uniToHtml($options.title)
     end
+    puts("<!DOCTYPE html>")
     puts("<html>")
     puts("<head>")
     if $options.title
