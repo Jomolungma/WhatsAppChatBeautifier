@@ -1,11 +1,5 @@
 #! /bin/ruby
 
-#
-# Dependencies:
-#   https://github.com/minimagick/minimagick
-#   https://www.imagemagick.org/ -- Must choose "install legacy components"
-#
-
 require 'optparse'
 require 'ostruct'
 require 'pathname'
@@ -36,7 +30,6 @@ class CmdLine
     options.title = nil
     options.me = nil
     options.senderIdMap = {}
-    options.thumbnails = false
     options.copyMedia = true
     options.verbose = 0
     options.indexByMonth = false
@@ -62,9 +55,6 @@ class CmdLine
           senderId, name = map.split("=")
           options.senderIdMap[senderId] = name
         }
-      end
-      opts.on("-n", "--thumbnails", TrueClass, "Embed thumbnails (requires mini_magick).") do |t|
-        options.thumbnails = t
       end
       opts.on("--[no-]copyMedia", "Copy media files.") do |c|
         options.copyMedia = c
@@ -99,10 +89,6 @@ $options = CmdLine.parse(ARGV)
 
 if $options.inputDirectory.empty? or $options.outputDirectory.empty?
   CmdLine.parse(["-h"]) # exits
-end
-
-if $options.thumbnails
-  require 'mini_magick'
 end
 
 $inputDir = Pathname.new($options.inputDirectory)
@@ -299,6 +285,63 @@ $senderIds.each_key { |senderId|
 $allYears = $allYears.keys
 $allMonths = $allMonths.keys
 $allDays = messages.keys
+
+#
+# ----------------------------------------------------------------------
+# Media file helpers.
+# ----------------------------------------------------------------------
+#
+
+def pngSize(file)
+  file.seek(0)
+  pngSig = [137, 80, 78, 71, 13, 10, 26, 10].pack("C*")
+  fileSig = file.read(8)
+  if pngSig == fileSig
+    chunkLength = file.read(4).unpack("N")[0]
+    chunkType = file.read(4)
+    if chunkLength == 13 and chunkType == "IHDR"
+      width, height = file.read(13).unpack("NN")
+      return ["PNG", width, height]
+    end
+  end
+  return [nil, 0, 0]
+end
+
+def jpgSize(file)
+  file.seek(0)
+  jpgSig = [255, 216, 255, 224].pack("C*")
+  fileSig = file.read(4)
+  if jpgSig == fileSig
+    app0Length = file.read(2).unpack("n")[0]
+    app0Id = file.read(4)
+    if app0Id == "JFIF"
+      file.seek(4 + app0Length)
+      while !file.eof?
+        segMarker = file.read(2).unpack("C*")
+        segLength = file.read(2).unpack("n")[0]
+        if segMarker[0] == 255 and segMarker[1] == 192
+          sof0Info = file.read(5).unpack("Cnn")
+          return ["JPG", sof0Info[2], sof0Info[1]]
+        end
+        file.seek(segLength - 2, IO::SEEK_CUR)
+      end
+    end
+  end
+  return [nil, 0, 0]
+end
+
+def imageSize(filename)
+  file = File.open(filename, "rb")
+
+  imgFile, width, height = pngSize(file)
+
+  if !imgFile
+    imgFile, width, height = jpgSize(file)
+  end
+
+  file.close()
+  return [imgFile, width, height]
+end
 
 #
 # ----------------------------------------------------------------------
@@ -512,11 +555,12 @@ def processImageAttachmentMessage(file, attachmentFileName, inputFileName)
   # large images down to our "thumbnail" size.
   #
 
-  if !$options.thumbnails
+  imgFile, imgWidth, imgHeight = imageSize(inputFileName)
+
+  if imgFile == nil
     file.puts("<img src=\"#{attachmentFileName.to_s}\">")
   else
-    image = MiniMagick::Image.open(inputFileName)
-    width, height = scaleImage(image.width, image.height)
+    width, height = scaleImage(imgWidth, imgHeight)
     file.puts("<a href=\"#{attachmentFileName.to_s}\">")
     file.puts("<img width=\"#{width}\" height=\"#{height}\" src=\"" + attachmentFileName.to_s + "\">")
     file.puts("</a>")
