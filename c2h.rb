@@ -25,12 +25,11 @@ $emojiHeight = 20
 class CmdLine
   def self.parse(args)
     options = OpenStruct.new
-    options.inputDirectory = ""
+    options.input = []
     options.outputDirectory = ""
     options.title = nil
     options.me = nil
     options.senderIdMap = {}
-    options.copyMedia = true
     options.verbose = 0
     options.indexByMonth = false
     options.indexByYear = false
@@ -38,8 +37,8 @@ class CmdLine
 
     opt_parser = OptionParser.new do |opts|
       opts.banner = "Usage: c2h.rb [options]"
-      opts.on("-i", "--inputDirectory=DIR", "Directory containing _chat.txt.") do |i|
-        options.inputDirectory = i
+      opts.on("-i", "--input=File/Dir", "Zip file or directory containing _chat.txt.") do |i|
+        options.input << i
       end
       opts.on("-o", "--outputDirectory=DIR", "Output directory, will be created or cleaned.") do |o|
         options.outputDirectory = o
@@ -55,9 +54,6 @@ class CmdLine
           senderId, name = map.split("=")
           options.senderIdMap[senderId] = name
         }
-      end
-      opts.on("--[no-]copyMedia", "Copy media files.") do |c|
-        options.copyMedia = c
       end
       opts.on("-x", "--indexBy=[month,year]", "Create daily, monthly or annual index.") do |x|
         if x.downcase == "month"
@@ -87,62 +83,8 @@ end
 
 $options = CmdLine.parse(ARGV)
 
-if $options.inputDirectory.empty? or $options.outputDirectory.empty?
+if $options.input.empty? or $options.outputDirectory.empty?
   CmdLine.parse(["-h"]) # exits
-end
-
-$inputDir = Pathname.new($options.inputDirectory)
-$outputDir = Pathname.new($options.outputDirectory)
-chatTxtFileName = $inputDir.join("_chat.txt")
-
-if !chatTxtFileName.readable?
-  puts "Oops: \"" + chatTxtFileName.to_s + "\" does not exist or is not readable."
-  exit
-end
-
-#
-# Create output directory if it does not exist.
-#
-
-if !$outputDir.directory? and !$outputDir.exist?
-  $outputDir.mkdir()
-end
-
-if !$outputDir.directory?
-  puts "Oops: \"" + $outputDir.to_s + "\" is not a directory."
-  exit
-end
-
-#
-# To make sure that we do not delete anything important, we test that
-# the directory is either empty or that it contains an "index.html"
-# file.
-#
-
-if $outputDir.directory?
-  contents = Dir.entries($outputDir)
-  contents.delete(".")
-  contents.delete("..")
-  if !contents.empty? and !contents.include?("index.html")
-    puts "Oops: \"" + $outputDir.to_s + "\" is not empty."
-    exit
-  end
-end
-
-#
-# Gather list of emoji files if an emoji directory is given.
-#
-
-$emojiFiles = Hash.new
-
-if $options.emojiDir
-  $emojiDir = Pathname.new($options.emojiDir)
-  Dir.entries($emojiDir).each { |fileName|
-    if fileName[-4..-1] == ".png"
-      imageBaseName = fileName[0..-5]
-      $emojiFiles[imageBaseName] = false
-    end
-  }
 end
 
 #
@@ -151,140 +93,136 @@ end
 # ----------------------------------------------------------------------
 #
 
-#
-# Read chat file in binary so that ruby does not touch line endings.
-#
-
-chatTxtFile = File.open(chatTxtFileName, "rb")
-chatTxt = chatTxtFile.read
-chatTxtFile.close
-
-#
-# Message lines are separated by CR LF.
-#
-
-messageCount = 0
-messages = Hash.new
-$senderIds = Hash.new
-$allYears = Hash.new
-$allMonths = Hash.new
-
-chatTxt.split("\r\n").each { |messageLine|
+def parseInputFromFileOrDir(input)
   #
-  # Force message to UTF-8 after reading the file in binary.
+  # Read chat file in binary so that ruby does not touch line endings.
   #
 
-  messageLine = messageLine.force_encoding("UTF-8")
+  if input.directory?
+    inputType = "dir"
+    chatTxtFileName = input.join("_chat.txt")
 
-  #
-  # Each message line starts with a "date, time:", sometimes preceded by a
-  # unicode character.
-  #
-
-  timestampMatch = messageLine.match('(\[)?(\d{2}.\d{2}.\d{2}, \d{2}:\d{2}:\d{2})(\])?(:)?')
-  raise "Oops" if timestampMatch == nil
-
-  beginOfTimestamp = timestampMatch.begin(2)
-  endOfTimestamp = timestampMatch.end(2)
-  timestampString = messageLine[beginOfTimestamp..endOfTimestamp-1].strip
-  timestamp = DateTime.strptime(timestampString, "%d.%m.%y, %H:%M:%S")
-
-  #
-  # After the timestamp, there is usually the sender ID followed by a ":".
-  # Assumption: system messages never contain a ":".
-  #
-
-  endOfSenderId = messageLine.index(":", endOfTimestamp+1)
-
-  if endOfSenderId
-    senderId = messageLine[endOfTimestamp+1..endOfSenderId-1].strip
-    message = messageLine[endOfSenderId+1..-1].strip
-  else
-    senderId = nil
-    message = messageLine[endOfTimestamp+1..-1].strip
-  end
-
-  #
-  # For attachments, the message looks like "filename [* n pages] <attached>",
-  # where the strings "attached" and "pages" are localized. The "n pages" is
-  # present for PDF attachments.
-  #
-  # There is either text or an attachment, but not both. If an attachment has a
-  # comment, the comment is not exported.
-  #
-
-  if attachmentMatch = message.match('([0-9A-Za-z\- ]+\.[A-Za-z0-9]+).*<[^\s>]+>')
-    message = nil
-    attachment = attachmentMatch[1]
-  else
-    attachment = nil
-  end
-
-  #
-  # Index sender ids.
-  #
-
-  if senderId and !$senderIds.include?(senderId)
-    $senderIds[senderId] = true
-  end
-
-  #
-  # Index messages by "year-month-day"
-  #
-
-  year=timestamp.strftime("%Y")
-  month=timestamp.strftime("%Y-%m")
-  day=timestamp.strftime("%Y-%m-%d")
-
-  $allYears[year] = true
-  $allMonths[month] = true
-
-  if !messages.include?(day)
-    messages[day] = Array.new
-  end
-
-  messages[day] << {
-    "timestamp" => timestamp,
-    "senderId" => senderId,
-    "text" => message,
-    "attachment" => attachment
-  }
-
-  messageCount = messageCount + 1
-}
-
-#
-# If there are only two sender ids, and the "me" option was not given,
-# choose one of them as "me."
-#
-
-if $senderIds.size == 2 and $options.me == nil
-  $options.me = $senderIds.keys[0]
-end
-
-#
-# Cleanse sender ids for "me" and "map".
-#
-
-$senderIds.each_key { |senderId|
-  if $options.me and senderId.include?($options.me)
-    $options.me = senderId
-  end
-
-  $options.senderIdMap.keys.each { |key|
-    if senderId.include?(key)
-      $options.senderIdMap[senderId] = $options.senderIdMap[key]
+    if !chatTxtFileName.readable?
+      puts "Oops: \"" + chatTxtFileName.to_s + "\" does not exist or is not readable."
+      exit
     end
+
+    
+    chatTxtFile = File.open(chatTxtFileName, "rb")
+    chatTxt = chatTxtFile.read
+    chatTxtFile.close
+  elsif input.extname == ".zip"
+    require 'zip'
+    inputType = "zip"
+    zipFile = Zip::File.open(input)
+    chatTxt = zipFile.read("_chat.txt")
+  else
+    puts "Oops: Unable to read input \"" + input.to_s + "\", must be directory or ZIP file."
+    exit
+  end
+
+  #
+  # Message lines are separated by CR LF.
+  #
+
+  chatTxt.split("\r\n").each { |messageLine|
+    #
+    # Force message to UTF-8 after reading the file in binary.
+    #
+
+    messageLine = messageLine.force_encoding("UTF-8")
+
+    #
+    # Each message line starts with a "date, time:", sometimes preceded by a
+    # unicode character.
+    #
+
+    timestampMatch = messageLine.match('(\[)?(\d{2}.\d{2}.\d{2}, \d{2}:\d{2}:\d{2})(\])?(:)?')
+    raise "Oops" if timestampMatch == nil
+
+    beginOfTimestamp = timestampMatch.begin(2)
+    endOfTimestamp = timestampMatch.end(2)
+    timestampString = messageLine[beginOfTimestamp..endOfTimestamp-1].strip
+    timestamp = DateTime.strptime(timestampString, "%d.%m.%y, %H:%M:%S")
+
+    #
+    # After the timestamp, there is usually the sender ID followed by a ":".
+    # Assumption: system messages never contain a ":".
+    #
+
+    endOfSenderId = messageLine.index(":", endOfTimestamp+1)
+
+    if endOfSenderId
+      senderId = messageLine[endOfTimestamp+1..endOfSenderId-1].strip
+      message = messageLine[endOfSenderId+1..-1].strip
+    else
+      senderId = nil
+      message = messageLine[endOfTimestamp+1..-1].strip
+    end
+
+    #
+    # For attachments, the message looks like "filename [* n pages] <attached>",
+    # where the strings "attached" and "pages" are localized. The "n pages" is
+    # present for PDF attachments.
+    #
+    # There is either text or an attachment, but not both. If an attachment has a
+    # description, it is not exported -- this is a deficiency of the WhatsApp
+    # export feature.
+    #
+
+    if attachmentMatch = message.match('([0-9A-Za-z\- ]+\.[A-Za-z0-9]+).*<[^\s>]+>')
+      message = nil
+      attachmentFileName = attachmentMatch[1]
+      outputFileName = $outputDir.join(attachmentFileName)
+
+      case (inputType)
+      when "dir" then
+        inputFileName = input.join(attachmentFileName)
+        IO.copy_stream(inputFileName, outputFileName)
+      when "zip" then
+        zipFile.extract(attachmentFileName, outputFileName)
+      end
+    else
+      attachmentFileName = nil
+    end
+
+    #
+    # Index sender ids.
+    #
+
+    if senderId and !$senderIds.include?(senderId)
+      $senderIds[senderId] = true
+    end
+
+    #
+    # Index messages by "year-month-day"
+    #
+
+    year=timestamp.strftime("%Y")
+    month=timestamp.strftime("%Y-%m")
+    day=timestamp.strftime("%Y-%m-%d")
+
+    $allYears[year] = true
+    $allMonths[month] = true
+
+    if !$messages.include?(day)
+      $messages[day] = Array.new
+    end
+
+    $messages[day] << {
+      "timestamp" => timestamp,
+      "senderId" => senderId,
+      "text" => message,
+      "attachment" => attachmentFileName
+    }
+
+    $messageCount = $messageCount + 1
   }
-}
 
-#
-# Get arrays of all years, months, days.
-#
-
-$allYears = $allYears.keys
-$allMonths = $allMonths.keys
-$allDays = messages.keys
+  if inputType == "zip"
+    zipFile.close( )
+  end
+end
 
 #
 # ----------------------------------------------------------------------
@@ -345,7 +283,7 @@ end
 
 #
 # ----------------------------------------------------------------------
-# Output generation.
+# Output generation helpers.
 # ----------------------------------------------------------------------
 #
 
@@ -602,23 +540,17 @@ end
 def processAttachmentMessage(file, message)
   attachmentFileName = Pathname.new(message["attachment"])
   attachmentFileType = attachmentFileName.extname[1..-1]
-
-  inputFileName = $inputDir.join(attachmentFileName)
-
-  if $options.copyMedia
-    outputFileName = $outputDir.join(attachmentFileName)
-    IO.copy_stream(inputFileName, outputFileName)
-  end
+  inputFileName = $outputDir.join(attachmentFileName)
 
   case (attachmentFileType)
-    when "jpg", "png" then
-      processImageAttachmentMessage(file, attachmentFileName, inputFileName)
-    when "mp4" then
-      processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
-    when "opus" then
-      processAudioAttachmentMessage(file, attachmentFileName, inputFileName)
-    else
-      processGenericAttachmentMessage(file, attachmentFileName, inputFileName)
+  when "jpg", "png" then
+    processImageAttachmentMessage(file, attachmentFileName, inputFileName)
+  when "mp4" then
+    processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
+  when "opus" then
+    processAudioAttachmentMessage(file, attachmentFileName, inputFileName)
+  else
+    processGenericAttachmentMessage(file, attachmentFileName, inputFileName)
   end
 end
 
@@ -671,15 +603,6 @@ def processMessage(file, message)
 end
 
 #
-# Copy style sheet file to output directory.
-#
-
-scriptFileName = Pathname.new($0)
-scriptDirectory = scriptFileName.dirname
-cssBaseName = "c2h.css"
-IO.copy_stream(scriptDirectory.join(cssBaseName), $outputDir.join(cssBaseName))
-
-#
 # Generate HTML.
 #
 
@@ -721,6 +644,119 @@ class HtmlOutputFile
     puts("</html>")
   end
 end
+
+#
+# ----------------------------------------------------------------------
+# Main.
+# ----------------------------------------------------------------------
+#
+
+#
+# Create output directory if it does not exist.
+#
+
+$outputDir = Pathname.new($options.outputDirectory)
+
+if !$outputDir.directory? and !$outputDir.exist?
+  $outputDir.mkdir()
+end
+
+if !$outputDir.directory?
+  puts "Oops: \"" + $outputDir.to_s + "\" is not a directory."
+  exit
+end
+
+#
+# To make sure that we do not delete anything important, we test that
+# the directory is either empty or that it contains an "index.html"
+# file.
+#
+
+if $outputDir.directory?
+  contents = Dir.entries($outputDir)
+  contents.delete(".")
+  contents.delete("..")
+  if !contents.empty? and !contents.include?("index.html")
+    puts "Oops: \"" + $outputDir.to_s + "\" is not empty."
+    exit
+  end
+end
+
+#
+# Gather list of emoji files if an emoji directory is given.
+#
+
+$emojiFiles = Hash.new
+
+if $options.emojiDir
+  $emojiDir = Pathname.new($options.emojiDir)
+  Dir.entries($emojiDir).each { |fileName|
+    if fileName[-4..-1] == ".png"
+      imageBaseName = fileName[0..-5]
+      $emojiFiles[imageBaseName] = false
+    end
+  }
+end
+
+#
+# Read input files.
+#
+
+$messageCount = 0
+$messages = Hash.new
+$senderIds = Hash.new
+$allYears = Hash.new
+$allMonths = Hash.new
+
+$options.input.each { | inputFileOrDir|
+  parseInputFromFileOrDir(Pathname.new(inputFileOrDir))
+}
+
+#
+# If there are only two sender ids, and the "me" option was not given,
+# choose one of them as "me."
+#
+
+if $senderIds.size == 2 and $options.me == nil
+  $options.me = $senderIds.keys[0]
+end
+
+#
+# Cleanse sender ids for "me" and "map".
+#
+
+$senderIds.each_key { |senderId|
+  if $options.me and senderId.include?($options.me)
+    $options.me = senderId
+  end
+
+  $options.senderIdMap.keys.each { |key|
+    if senderId.include?(key)
+      $options.senderIdMap[senderId] = $options.senderIdMap[key]
+    end
+  }
+}
+
+#
+# Get arrays of all years, months, days.
+#
+
+$allYears = $allYears.keys
+$allMonths = $allMonths.keys
+$allDays = $messages.keys
+
+#
+# Copy style sheet file to output directory.
+#
+
+scriptFileName = Pathname.new($0)
+scriptDirectory = scriptFileName.dirname
+cssBaseName = "c2h.css"
+IO.copy_stream(scriptDirectory.join(cssBaseName), $outputDir.join(cssBaseName))
+
+#
+# Start HTML generation.
+#
 
 indexHtmlFileName = "index.html"
 indexHtmlFile = HtmlOutputFile.new(indexHtmlFileName)
@@ -784,7 +820,7 @@ $allDays.each_index { |dayIndex|
   activeFile.puts("</div>")
   activeFile.puts("<hr>")
 
-  messages[today].each { |message| processMessage(activeFile.get(), message) }
+  $messages[today].each { |message| processMessage(activeFile.get(), message) }
 }
 
 if yearFile
