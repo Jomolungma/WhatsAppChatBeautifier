@@ -7,17 +7,6 @@ require 'date'
 
 #
 # ----------------------------------------------------------------------
-# Settings
-# ----------------------------------------------------------------------
-#
-
-$thumbWidth = 320
-$thumbHeight = 240
-$emojiWidth = 20
-$emojiHeight = 20
-
-#
-# ----------------------------------------------------------------------
 # Command line handling.
 # ----------------------------------------------------------------------
 #
@@ -34,6 +23,10 @@ class CmdLine
     options.indexByMonth = false
     options.indexByYear = false
     options.emojiDir = nil
+    options.imageWidth = 320
+    options.imageHeigth = 240
+    options.emojiWidth = 20
+    options.emojiHeight = 20
 
     opt_parser = OptionParser.new do |opts|
       opts.banner = "Usage: c2h.rb [options]"
@@ -55,7 +48,7 @@ class CmdLine
           options.senderIdMap[senderId] = name
         }
       end
-      opts.on("-x", "--indexBy=[month,year]", "Create daily, monthly or annual index.") do |x|
+      opts.on("-x", "--indexBy=[month,year]", "Create monthly or annual index.") do |x|
         if x.downcase == "month"
           options.indexByMonth = true
         elsif x.downcase == "year"
@@ -66,6 +59,16 @@ class CmdLine
       end
       opts.on("-e", "--emojiDir=directory", "Use emoji image files from this directory.") do |e|
         options.emojiDir = e
+      end
+      opts.on("--imageSize=<width>x<height>", "Limit size of embedded images, default 320x240.") do |s|
+        sa = s.split("x")
+        options.imageWidth = sa[0].to_i
+        options.imageHeight = sa[1].to_i
+      end
+      opts.on("--emojiSize=<width>x<height>", "Size of inline emoji images, default 20x20.") do |s|
+        sa = s.split("x")
+        options.emojiWidth = sa[0].to_i
+        options.emojiHeight = sa[1].to_i
       end
       opts.on("-v", "--verbose", "Increase verbosity.") do
         options.verbose = options.verbose + 1
@@ -174,6 +177,10 @@ def parseInputFromFileOrDir(input)
       message = nil
       attachmentFileName = attachmentMatch[1]
       outputFileName = $outputDir.join(attachmentFileName)
+
+      if outputFileName.exist?
+        outputFileName.delete()
+      end
 
       case (inputType)
       when "dir" then
@@ -295,6 +302,10 @@ def formatDay(date)
   return date.strftime("%B %-d, %Y")
 end
 
+def formatMonthAndYear(date)
+  return date.strftime("%B %Y")
+end
+
 def formatMonth(date)
   return date.strftime("%B")
 end
@@ -371,7 +382,7 @@ def replaceEmojisWithImages(messageText)
       subLength = findLongestUnicodeEmojiSubsequence(hexCodepoints)
       if subLength > 0
         basename=hexCodepoints[0..subLength-1].join("_")
-        output.concat("<img width=\"#{$emojiWidth}\" height=\"#{$emojiHeight}\" src=\"#{basename}.png\">")
+        output.concat("<img width=\"#{$options.emojiWidth}\" height=\"#{$options.emojiHeight}\" src=\"#{basename}.png\">")
         codepoints = codepoints[subLength..-1]
         $emojiFiles[basename] = true
       else
@@ -462,9 +473,9 @@ end
 #
 
 def scaleImage(width, height)
-  if width > $thumbWidth or height > $thumbHeight
-    widthScale = width.to_f / $thumbWidth.to_f
-    heightScale = height.to_f / $thumbHeight.to_f
+  if width > $options.imageWidth or height > $options.imageHeigth
+    widthScale = width.to_f / $options.imageWidth.to_f
+    heightScale = height.to_f / $options.imageHeigth.to_f
     scale = (widthScale > heightScale) ? widthScale : heightScale
     newWidth = (width / scale).to_i
     newHeight = (height / scale).to_i
@@ -510,8 +521,10 @@ end
 #
 
 def processAudioAttachmentMessage(file, attachmentFileName, inputFileName)
+  attachmentFileNameAsString = attachmentFileName.to_s
   file.puts("<audio controls=\"\">")
-  file.puts("<source src=\"#{attachmentFileName.to_s}\">")
+  file.puts("<source src=\"#{attachmentFileNameAsString}\">")
+  file.puts("<a href=\"#{attachmentFileNameAsString}\">#{attachmentFileNameAsString}</a>")
   file.puts("</audio>")
 end
 
@@ -520,8 +533,10 @@ end
 #
 
 def processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
-  file.puts("<video width=\"#{$thumbWidth}\" controls=\"\">")
-  file.puts("<source src=\"#{attachmentFileName.to_s}\">")
+  attachmentFileNameAsString = attachmentFileName.to_s
+  file.puts("<video width=\"#{$options.imageWidth}\" controls=\"\">")
+  file.puts("<source src=\"#{attachmentFileNameAsString}\">")
+  file.puts("<a href=\"#{attachmentFileNameAsString}\">#{attachmentFileNameAsString}</a>")
   file.puts("</video>")
 end
 
@@ -530,7 +545,8 @@ end
 #
 
 def processGenericAttachmentMessage(file, attachmentFileName, inputFileName)
-  file.puts("<a href=\"#{attachmentFileName.to_s}\">#{attachmentFileName.to_s}</a>")
+  attachmentFileNameAsString = attachmentFileName.to_s
+  file.puts("<a href=\"#{attachmentFileNameAsString}\">#{attachmentFileNameAsString}</a>")
 end
 
 #
@@ -623,21 +639,16 @@ class HtmlOutputFile
     @file.puts(str)
   end
   def printHtmlHeader()
-    if $options.title
-      htmlTitle = uniToHtml($options.title)
-    end
     puts("<!DOCTYPE html>")
     puts("<html>")
     puts("<head>")
     if $options.title
+      htmlTitle = uniToHtml($options.title)
       puts("<title>#{htmlTitle}</title>")
     end
     puts("<link rel=\"stylesheet\" href=\"c2h.css\">")
     puts("</head>")
     puts("<body>")
-    if $options.title
-      puts("<h1>#{htmlTitle}</h1>")
-    end
   end
   def printHtmlFooter()
     puts("</body>")
@@ -775,6 +786,11 @@ elsif $options.indexByMonth
   indexHtmlFile.puts("<dl>")
 end
 
+if $options.title and ($options.indexByYear or $options.indexByMonth)
+  htmlTitle = uniToHtml($options.title)
+  indexHtmlFile.puts("<h1>#{htmlTitle}</h1>")
+end
+
 activeFile = indexHtmlFile
 
 $allDays.each_index { |dayIndex|
@@ -784,40 +800,60 @@ $allDays.each_index { |dayIndex|
   messageMonth = timestamp.strftime("%Y-%m")
   messageDay = timestamp.strftime("%Y-%m-%d")
 
+  activeFile.puts("<hr>")
+
   if $options.indexByYear
+    yearFileName = "#{messageYear}.html"
     if messageYear != currentYear
       if yearFile
         yearFile.close()
       end
-      yearFileName = "#{messageYear}.html"
       yearFile = HtmlOutputFile.new(yearFileName)
       yearString = formatYear(timestamp)
       indexHtmlFile.puts("<li><a href=\"#{yearFileName}\">#{yearString}</a>")
       activeFile = yearFile
       currentYear = messageYear
     end
+    if messageMonth != currentMonth
+      monthName = formatMonth(timestamp)
+      activeFile.puts("<h1 id=\"#{messageMonth}\">#{monthName}</h1>")
+      indexHtmlFile.puts("<a href=\"#{yearFileName}##{messageMonth}\">#{monthName}</a>")
+      currentMonth = messageMonth
+    end
+    activeFile.puts("<h2 id=\"#{messageDay}\">#{formatDay(timestamp)}</h2>")
   elsif $options.indexByMonth
+    monthFileName = "#{messageMonth}.html"
     if messageMonth != currentMonth
       if monthFile
         monthFile.close()
       end
-      monthFileName = "#{messageMonth}.html"
       monthFile = HtmlOutputFile.new(monthFileName)
       monthString = formatMonth(timestamp)
+      indexHtmlFile.puts("</dd>")
       if messageYear != currentYear
         indexHtmlFile.puts("<dt> #{messageYear}")
         currentYear = messageYear
       end
-      indexHtmlFile.puts("<dd><a href=\"#{monthFileName}\">#{monthString}</a></dd>")
+      indexHtmlFile.puts("<dd><a href=\"#{monthFileName}\">#{monthString}</a>")
       activeFile = monthFile
       currentMonth = messageMonth
     end
+    dayOnly = timestamp.strftime("%d")
+    activeFile.puts("<h1 id=\"#{messageDay}\">#{formatDay(timestamp)}</h1>")
+    indexHtmlFile.puts("<a href=\"#{monthFileName}##{messageDay}\">#{dayOnly}</a>")
+  else
+    if messageYear != currentYear
+      activeFile.puts("<h1 id=\"#{messageYear}\">#{messageYear}</h1>")
+      currentYear = messageYear
+    end
+    if messageMonth != currentMonth
+      monthName = formatMonth(timestamp)
+      activeFile.puts("<h2 id=\"#{messageMonth}\">#{monthName}</h2>")
+      currentMonth = messageMonth
+    end
+    activeFile.puts("<h3 id=\"#{messageDay}\">#{formatDay(timestamp)}</h3>")
   end
 
-  activeFile.puts("<hr>")
-  activeFile.puts("<div class=\"date\">")
-  activeFile.puts(formatDay(timestamp))
-  activeFile.puts("</div>")
   activeFile.puts("<hr>")
 
   $messages[today].each { |message| processMessage(activeFile.get(), message) }
@@ -838,6 +874,7 @@ end
 if $options.indexByYear
   indexHtmlFile.puts("</ul>")
 elsif $options.indexByMonth
+  indexHtmlFile.puts("</dd>")
   indexHtmlFile.puts("</dl>")
 end
 

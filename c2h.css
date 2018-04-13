@@ -8,10 +8,7 @@ h1 {
     font-weight: bold;
     text-align: center;
 }
-dt {
-    font-weight: bold;
-}
-div.date {
+h2 {
     width: 20%;
     margin: auto;
     border-radius: 7.5px;
@@ -19,6 +16,13 @@ div.date {
     color: #ffffff;
     text-align: center;
     padding: 10px;
+}
+h3 {
+    font-weight: bold;
+    text-align: center;
+}
+dt {
+    font-weight: bold;
 }
 div.systemMessage {
     font-style: italic;
