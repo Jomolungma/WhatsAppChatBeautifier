@@ -28,23 +28,23 @@ with any browser.
 
 ## Options
 
-- `--input=_<Dir/File>_` Load chat from a ZIP file or directory. This option
+- `--input=<Dir/File>` Load chat from a ZIP file or directory. This option
 can be used multiple times to merge chat sessions.
-- `--outputDirectory=_<Dir>_` Generate output in this directory, which will be
+- `--outputDirectory=<Dir>` Generate output in this directory, which will be
 created or emptied.
-- `--title=_<Title>_` HTML title to use.
-- `--me=_<SenderId>_` Messages by this sender are right-aligned.
-- `--map=_<SenderId=name>` In HTML output, replace all sender ids with the
+- `--title=<Title>` HTML title to use.
+- `--me=<SenderId>` Messages by this sender are right-aligned.
+- `--map=<SenderId=name>` In HTML output, replace all sender ids with the
 _substring_ **SenderId** with **name**, e.g., to replace phone numbers with
 readable names. This option can be used multiple times.
-- `--index=_[month,year]` Instead of a single big index.html file, split the
+- `--index=[month,year]` Instead of a single big index.html file, split the
 chat into monthly or annual files.
-- `--imageSize=_<Width>x<Height>_` Scale large images so that the embedded
+- `--imageSize=<Width>x<Height>` Scale large images so that the embedded
 image does not exceed this maximum. For larger images, a link to the full-size
 images is generated. Default 320x240.
-- `--emojiDir=_<Dir>_` Find inline emoji images in this directory. See Emojis
+- `--emojiDir=<Dir>` Find inline emoji images in this directory. See Emojis
 section below.
-- `--emojiSize=_<Width>x<Height>_` Size of inline emoji images, default 20x20.
+- `--emojiSize=<Width>x<Height>` Size of inline emoji images, default 20x20.
 
 ## Notes
 
