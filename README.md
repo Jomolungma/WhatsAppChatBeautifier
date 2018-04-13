@@ -32,16 +32,16 @@ with any browser.
 can be used multiple times to merge chat sessions.
 - `--outputDirectory=<Dir>` Generate output in this directory, which will be
 created or emptied.
-- `--title=<Title>` HTML title to use.
+- `--title=<Title>` Document title to use.
 - `--me=<SenderId>` Messages by this sender are right-aligned.
-- `--map=<SenderId=name>` In HTML output, replace all sender ids with the
-_substring_ **SenderId** with **name**, e.g., to replace phone numbers with
-readable names. This option can be used multiple times.
+- `--map=<SenderId=name>` Replace all sender ids with the _substring_
+**SenderId** with **name**, e.g., to replace phone numbers with readable
+names. This option can be used multiple times.
 - `--index=[month,year]` Instead of a single big index.html file, split the
-chat into monthly or annual files.
+chat into monthly or annual pages.
 - `--imageSize=<Width>x<Height>` Scale large images so that the embedded
 image does not exceed this maximum. For larger images, a link to the full-size
-images is generated. Default 320x240.
+images is generated. The default is 320x240.
 - `--emojiDir=<Dir>` Find inline emoji images in this directory. See Emojis
 section below.
 - `--emojiSize=<Width>x<Height>` Size of inline emoji images, default 20x20.
@@ -60,7 +60,7 @@ output directory, so that it is self-contained.
 
 ## Emojis
 
-WhatsApp chats may contain Unicode. The Unicode consortium maintains a
+WhatsApp chats may contain Unicode emoticons. The Unicode consortium maintains a
 list of emoticons [here](http://www.unicode.org/emoji/charts/emoji-list.html).
 When the `--emojiDir` option is not used, emoticons are left as-is, i.e., using
 the appropriate Unicode character, and your Web browser should render them.
@@ -81,7 +81,7 @@ this process.
 
 WhatsApp uses some localized strings in its exported chats, such as "<attached>"
 for attached media, and its message timestamps. WhatsAppChatBeautifier might not
-work with other locales as it was tested with (English, German).
+work properly with other than the few western locales it was tested with.
 
 Image captions are not exported by WhatsApp.
 
