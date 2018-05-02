@@ -369,24 +369,44 @@ end
 
 def replaceEmojisWithImages(messageText)
   output = ""
+  lastEmojiWasText = true
   while i = messageText.index('&')
     if i != 0
       output.concat(messageText[0..i-1])
     end
     codepoints, remainder = eatConsecutiveUnicode(messageText[i..-1])
     codepoints.delete_if { |cp| (cp >= 65024)  and (cp <= 65039)  } # Delete variation selectors.
-    codepoints.delete_if { |cp| (cp >= 127995) and (cp <= 127999) } # Delete skin tone modifiers.
 
     while codepoints.length > 0
       hexCodepoints = codepoints.map { |cp| sprintf("%x",cp) }      # Map to hexadecimal.
       subLength = findLongestUnicodeEmojiSubsequence(hexCodepoints)
       if subLength > 0
         basename=hexCodepoints[0..subLength-1].join("_")
-        output.concat("<img width=\"#{$options.emojiWidth}\" height=\"#{$options.emojiHeight}\" src=\"#{basename}.png\">")
+        output.concat("<img width=\"#{$options.emojiWidth}\" height=\"#{$options.emojiHeight}\" src=\"emoji_u#{basename}#{$emojiExt}\">")
         codepoints = codepoints[subLength..-1]
         $emojiFiles[basename] = true
+        lastEmojiWasText = false
       else
-        output.concat(sprintf("&#%d;", codepoints[0]))
+        cp0 = codepoints[0]
+        if cp0 < 127995 or cp0 > 127999
+          printUnicode = true
+          lastEmojiWasText = true
+        else
+          #
+          # Print skin tone modifier only if the preceding emoji was printed as
+          # unicode text, so that the browser may choose the correct image for
+          # this skin tone. If the preceding emoji was rendered as an image, then
+          # the emoji image set does not include different images for different
+          # skin tones; in this case, do not print the skin tone modifier as it
+          # would be useless.
+          #
+
+          printUnicode = lastEmojiWasText
+          lastEmojiWasText = false
+        end
+        if printUnicode
+          output.concat(sprintf("&#%d;", cp0))
+        end
         codepoints = codepoints[1..-1]
       end
     end
@@ -461,7 +481,7 @@ def printSenderId(file, message)
   #   mine.
   #
 
-  noSenderId = (($senderIds.size == 2) or isMyMessage(message))
+  noSenderId = (($mappedSenderIds.size == 2) or isMyMessage(message))
 
   if !noSenderId
     file.puts("<span class=\"senderId\">" + uniToHtml(senderIdToPrint) + "</span> ")
@@ -601,7 +621,7 @@ end
 def processSystemMessage(file, message)
   file.puts("<div class=\"systemMessage\">")
   file.puts("<p align=\"center\">")
-  file.puts(uniToHtml(message["text"]))
+  file.puts(formatMessageText(message["text"]))
   file.puts("</p>")
   file.puts("</div>")
 end
@@ -697,16 +717,38 @@ end
 # Gather list of emoji files if an emoji directory is given.
 #
 
+$pngEmoji = false
+$svgEmoji = false
 $emojiFiles = Hash.new
 
 if $options.emojiDir
   $emojiDir = Pathname.new($options.emojiDir)
   Dir.entries($emojiDir).each { |fileName|
-    if fileName[-4..-1] == ".png"
-      imageBaseName = fileName[0..-5]
+    if fileName[0..6] == "emoji_u"
+      ext=fileName[-4..-1]
+      imageBaseName=fileName[7..-5]
+      if ext == ".png"
+        $pngEmoji = true
+      elsif ext == ".svg"
+        $svgEmoji = true
+      else
+        puts "Oops: Emoji file \"" + fileName + "\" is neither PNG nor SVG."
+        exit 1
+      end
       $emojiFiles[imageBaseName] = false
     end
   }
+end
+
+if $pngEmoji and $svgEmoji
+  puts "Oops: Both PNG and SVG emoji found."
+  exit 1
+end
+
+if $pngEmoji
+  $emojiExt = ".png"
+else
+  $emojiExt = ".svg"
 end
 
 #
@@ -724,29 +766,35 @@ $options.input.each { | inputFileOrDir|
 }
 
 #
-# If there are only two sender ids, and the "me" option was not given,
-# choose one of them as "me."
-#
-
-if $senderIds.size == 2 and $options.me == nil
-  $options.me = $senderIds.keys[0]
-end
-
-#
 # Cleanse sender ids for "me" and "map".
 #
+
+$mappedSenderIds = {}
 
 $senderIds.each_key { |senderId|
   if $options.me and senderId.include?($options.me)
     $options.me = senderId
   end
 
+  mappedSenderId = senderId
   $options.senderIdMap.keys.each { |key|
     if senderId.include?(key)
-      $options.senderIdMap[senderId] = $options.senderIdMap[key]
+      mappedSenderId = $options.senderIdMap[key]
     end
   }
+
+  $options.senderIdMap[senderId] = mappedSenderId
+  $mappedSenderIds[mappedSenderId] = true
 }
+
+#
+# If there are only two sender ids, and the "me" option was not given,
+# choose one of them as "me."
+#
+
+if $mappedSenderIds.size == 2 and $options.me == nil
+  $options.me = $senderIds.keys[0]
+end
 
 #
 # Get arrays of all years, months, days.
@@ -887,7 +935,7 @@ indexHtmlFile.close()
 if $emojiFiles
   $emojiFiles.each { |fileName, isUsed|
     if isUsed
-      emojiBaseName = "#{fileName}.png"
+      emojiBaseName = "emoji_u#{fileName}#{$emojiExt}"
       inputFileName = $emojiDir.join(emojiBaseName)
       outputFileName = $outputDir.join(emojiBaseName)
       IO.copy_stream(inputFileName, outputFileName)

@@ -83,7 +83,7 @@ inputData.each_line { |line|
   if md1 and md2
     codePoint = md1[1].downcase
     imageData = Base64.decode64(md2[1])
-    imageFileName = $outputDir.join("#{codePoint}.png")
+    imageFileName = $outputDir.join("emoji_u#{codePoint}.png")
     imageFile = File.open(imageFileName, "wb")
     imageFile.write(imageData)
     imageFile.close

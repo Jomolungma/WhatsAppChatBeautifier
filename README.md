@@ -60,28 +60,41 @@ output directory, so that it is self-contained.
 
 ## Emojis
 
-WhatsApp chats may contain Unicode emoticons. The Unicode consortium maintains a
-list of emoticons [here](http://www.unicode.org/emoji/charts/emoji-list.html).
-When the `--emojiDir` option is not used, emoticons are left as-is, i.e., using
-the appropriate Unicode character, and your Web browser should render them.
-However, this does not always work due to lack of browser support or missing
-emoticons in your installed font files. Therefore, WhatsAppChatBeautifier
-supports replacing emoticon characters with inline images.
+There are two options for handling emoticons that may be part of a conversation.
+By default, emoticons are left as-is, as their original unicode characters, so
+that the Web browser should render them. However, this does not always work
+properly due to lack of browser support or missing emoticons in your installed
+font files.
 
-For this to work, the given directory must contain image files for each emoticon.
+Therefore, WhatsAppChatBeautifier supports replacing emoticon characters with
+inline images from a set of emoji image files using the `--emojiDir` option.
+The given directory must contain image files for each emoticon. Two sources
+of emoticon image files are supported.
 
-The `uel2img.rb` script can be used to extract the list of emoticons from the
-Unicode consortium's Web page and to populate a directory that can be used by
+First, the Unicode consortium maintains a list of emoticons
+[here](http://www.unicode.org/emoji/charts/emoji-list.html). The `uel2img.rb`
+script can be used to extract the list of emoticons from the Unicode
+consortium's Web page and to populate a directory that can be used by
 WhatsAppChatBeautifier.
 
-Note that _variation selectors_ and _skin tone modifiers_ are discarded in
-this process.
+Alternatively, the [noto-emoji](https://github.com/googlei18n/noto-emoji)
+package includes emoji images. Both the PNG and SVG file sets can be used.
+
+Note that _variation selectors_ are discarded in this process.
+
+When the Unicode set is used, _skin tone modifiers_ are also discarded.
+
+In summary, there are three options for treating emoticons:
+- As-is, rendered by the browser.
+- Replaced by images from the Unicode consortium, by way of the `uel2img.rb` script.
+- Replaced by PNG or SVG images from the _noto-emoji_ package.
 
 ## Caveats
 
 WhatsApp uses some localized strings in its exported chats, such as "<attached>"
-for attached media, and its message timestamps. WhatsAppChatBeautifier might not
-work properly with other than the few western locales it was tested with.
+translated to the phone's language to reference attached media, and localized
+timestamps for its messages. Switch your phone to English while exporting
+chats to avoid any localization issues.
 
 Image captions are not exported by WhatsApp.
 
