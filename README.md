@@ -44,6 +44,8 @@ image does not exceed this maximum. For larger images, a link to the full-size
 images is generated. The default is 320x240.
 - `--emojiDir=<Dir>` Find inline emoji images in this directory. See Emojis
 section below.
+- `--backgroundImageName=<FileName>` Pick up a background image sample from this directory. See Background Images
+section below.
 - `--emojiSize=<Width>x<Height>` Size of inline emoji images, default 20x20.
 
 ## Notes
@@ -88,6 +90,12 @@ In summary, there are three options for treating emoticons:
 - As-is, rendered by the browser.
 - Replaced by images from the Unicode consortium, by way of the `uel2img.rb` script.
 - Replaced by PNG or SVG images from the _noto-emoji_ package.
+
+## Background Images
+
+This folder contains sample background images for the WhatsApp conversations. 
+These images have been downloaded from [Pixabay](https://pixabay.com/de/).
+Images and Videos on Pixabay are released under Creative Commons CC0.
 
 ## Caveats
 

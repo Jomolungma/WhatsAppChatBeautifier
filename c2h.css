@@ -1,5 +1,6 @@
 body {
     background-color: #dadada;
+    /*background: url("flower.jpg");*/
 }
 span.senderId {
     font-weight: bold;
