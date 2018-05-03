@@ -23,6 +23,7 @@ class CmdLine
     options.indexByMonth = false
     options.indexByYear = false
     options.emojiDir = nil
+    options.backgroundImageName = ""
     options.imageWidth = 320
     options.imageHeigth = 240
     options.emojiWidth = 20
@@ -59,6 +60,9 @@ class CmdLine
       end
       opts.on("-e", "--emojiDir=directory", "Use emoji image files from this directory.") do |e|
         options.emojiDir = e
+      end
+      opts.on("-b", "--backgroundImageName=fileName", "Background image name.") do |b|
+        options.backgroundImageName = b
       end
       opts.on("--imageSize=<width>x<height>", "Limit size of embedded images, default 320x240.") do |s|
         sa = s.split("x")
@@ -707,7 +711,13 @@ class HtmlOutputFile
     end
     puts("<link rel=\"stylesheet\" href=\"c2h.css\">")
     puts("</head>")
-    puts("<body>")
+    if $options.backgroundImageName
+      backgroundFileName = Pathname.new($options.backgroundImageName)
+      backgroundBaseName = backgroundFileName.basename
+      puts("<body background=\"#{backgroundBaseName}\">")
+    else
+      puts("<body>")
+    end
   end
   def printHtmlFooter()
     puts("</body>")
@@ -788,6 +798,17 @@ if $pngEmoji
   $emojiExt = ".png"
 else
   $emojiExt = ".svg"
+end
+
+#
+# Copy background image chosen by the user.
+#
+if $options.backgroundImageName
+  backgroundFileName = Pathname.new($options.backgroundImageName)
+  backgroundBaseName = backgroundFileName.basename
+  outputFileName = $outputDir.join(backgroundBaseName)
+  IO.copy_stream(backgroundFileName, outputFileName)
+  puts $backgroundDir
 end
 
 #
