@@ -96,45 +96,60 @@ end
 # ----------------------------------------------------------------------
 #
 
-def parseInputFromFileOrDir(input)
-  #
-  # Read chat file in binary so that ruby does not touch line endings.
-  #
+class InputFileParser
+  def initialize(input)
+    openAndReadInput(input)
+  end
 
-  if input.directory?
-    inputType = "dir"
-    chatTxtFileName = input.join("_chat.txt")
+  def openAndReadInput(input)
+    #
+    # Read chat file in binary so that ruby does not touch line endings.
+    #
 
-    if !chatTxtFileName.readable?
-      puts "Oops: \"" + chatTxtFileName.to_s + "\" does not exist or is not readable."
+    if input.directory?
+      @inputType = "dir"
+      @inputDir = input
+      chatTxtFileName = input.join("_chat.txt")
+
+      if !chatTxtFileName.readable?
+        puts "Oops: \"" + chatTxtFileName.to_s + "\" does not exist or is not readable."
+        exit
+      end
+
+      chatTxtFile = File.open(chatTxtFileName, "rb")
+      chatTxt = chatTxtFile.read
+      chatTxtFile.close
+    elsif input.extname == ".zip"
+      require 'zip'
+      @inputType = "zip"
+      @zipFile = Zip::File.open(input)
+      chatTxt = @zipFile.read("_chat.txt")
+    else
+      puts "Oops: Unable to read input \"" + input.to_s + "\", must be directory or ZIP file."
       exit
     end
 
-    
-    chatTxtFile = File.open(chatTxtFileName, "rb")
-    chatTxt = chatTxtFile.read
-    chatTxtFile.close
-  elsif input.extname == ".zip"
-    require 'zip'
-    inputType = "zip"
-    zipFile = Zip::File.open(input)
-    chatTxt = zipFile.read("_chat.txt")
-  else
-    puts "Oops: Unable to read input \"" + input.to_s + "\", must be directory or ZIP file."
-    exit
+    parseMessages chatTxt
+
+    if @inputType == ".zip"
+      @zipFile.close()
+    end
   end
 
-  #
-  # Message lines are separated by CR LF.
-  #
-
-  chatTxt.split("\r\n").each { |messageLine|
+  def parseMessages(chatTxt)
     #
-    # Force message to UTF-8 after reading the file in binary.
+    # Message lines are separated by CR LF.
     #
+    chatTxt.split("\r\n").each { |messageLine|
+      #
+      # Force message to UTF-8 after reading the file in binary.
+      #
 
-    messageLine = messageLine.force_encoding("UTF-8")
+      parseMessage messageLine.force_encoding("UTF-8")
+    }
+  end
 
+  def parseMessage(messageLine)
     #
     # Each message line starts with a "date, time:", sometimes preceded by a
     # unicode character.
@@ -176,58 +191,78 @@ def parseInputFromFileOrDir(input)
     if attachmentMatch = message.match('([0-9A-Za-z\- ]+\.[A-Za-z0-9]+).*<[^\s>]+>')
       message = nil
       attachmentFileName = attachmentMatch[1]
-      outputFileName = $outputDir.join(attachmentFileName)
-
-      if outputFileName.exist?
-        outputFileName.delete()
-      end
-
-      case (inputType)
-      when "dir" then
-        inputFileName = input.join(attachmentFileName)
-        IO.copy_stream(inputFileName, outputFileName)
-      when "zip" then
-        zipFile.extract(attachmentFileName, outputFileName)
-      end
+      copyAttachment(attachmentFileName)
     else
       attachmentFileName = nil
     end
 
-    #
-    # Index sender ids.
-    #
-
-    if senderId and !$senderIds.include?(senderId)
-      $senderIds[senderId] = true
-    end
-
-    #
-    # Index messages by "year-month-day"
-    #
-
-    year=timestamp.strftime("%Y")
-    month=timestamp.strftime("%Y-%m")
-    day=timestamp.strftime("%Y-%m-%d")
-
-    $allYears[year] = true
-    $allMonths[month] = true
-
-    if !$messages.include?(day)
-      $messages[day] = Array.new
-    end
-
-    $messages[day] << {
+    message = {
       "timestamp" => timestamp,
       "senderId" => senderId,
       "text" => message,
       "attachment" => attachmentFileName
     }
 
-    $messageCount = $messageCount + 1
-  }
+    recordMessage message
+  end
 
-  if inputType == "zip"
-    zipFile.close( )
+  def recordMessage(message)
+    timestamp=message["timestamp"]
+
+    year=timestamp.strftime("%Y")
+    month=timestamp.strftime("%Y-%m")
+    day=timestamp.strftime("%Y-%m-%d")
+    sec=timestamp.strftime("%H:%M:%S")
+
+    $allYears[year] = true
+    $allMonths[month] = true
+
+    #
+    # Check for and avoid duplicates.
+    #
+
+    if !$messages.include?(day)
+      $messages[day] = Hash.new
+    end
+
+    if !$messages[day].include?(sec)
+      $messages[day][sec] = Array.new
+    end
+
+    if !$messages[day][sec].include?(message)
+      $messages[day][sec] << message
+    end
+
+    #
+    # Index sender ids.
+    #
+
+    senderId = message["senderId"]
+    if senderId and !$senderIds.include?(senderId)
+      $senderIds[senderId] = true
+    end
+
+    #
+    # Count messages.
+    #
+
+    $messageCount = $messageCount + 1
+  end
+
+  def copyAttachment(attachmentFileName)
+    outputFileName = $outputDir.join(attachmentFileName)
+
+    if outputFileName.exist?
+      outputFileName.delete()
+    end
+
+    case (@inputType)
+    when "dir" then
+      inputFileName = @inputDir.join(attachmentFileName)
+      IO.copy_stream(inputFileName, outputFileName)
+    when "zip" then
+      @zipFile.extract(attachmentFileName, outputFileName)
+    end
   end
 end
 
@@ -452,7 +487,11 @@ end
 #
 
 def isMyMessage(message)
-  return message["senderId"] == $options.me
+  senderIdToUse = message["senderId"]
+  if $options.senderIdMap.include?(senderIdToUse)
+    senderIdToUse = $options.senderIdMap[senderIdToUse]
+  end
+  return senderIdToUse == $options.me
 end
 
 #
@@ -755,6 +794,12 @@ end
 # Read input files.
 #
 
+#
+# messages is a hash "year-month-day" -> dailyMessages
+# dailyMessages is a hash "hour-minute-second" -> setOfMessages
+# setOfMessages is an array
+#
+
 $messageCount = 0
 $messages = Hash.new
 $senderIds = Hash.new
@@ -762,7 +807,7 @@ $allYears = Hash.new
 $allMonths = Hash.new
 
 $options.input.each { | inputFileOrDir|
-  parseInputFromFileOrDir(Pathname.new(inputFileOrDir))
+  InputFileParser.new(Pathname.new(inputFileOrDir))
 }
 
 #
@@ -772,10 +817,6 @@ $options.input.each { | inputFileOrDir|
 $mappedSenderIds = {}
 
 $senderIds.each_key { |senderId|
-  if $options.me and senderId.include?($options.me)
-    $options.me = senderId
-  end
-
   mappedSenderId = senderId
   $options.senderIdMap.keys.each { |key|
     if senderId.include?(key)
@@ -800,9 +841,9 @@ end
 # Get arrays of all years, months, days.
 #
 
-$allYears = $allYears.keys
-$allMonths = $allMonths.keys
-$allDays = $messages.keys
+$allYears = $allYears.keys.sort
+$allMonths = $allMonths.keys.sort
+$allDays = $messages.keys.sort
 
 #
 # Copy style sheet file to output directory.
@@ -904,7 +945,11 @@ $allDays.each_index { |dayIndex|
 
   activeFile.puts("<hr>")
 
-  $messages[today].each { |message| processMessage(activeFile.get(), message) }
+  dailyMessages = $messages[today]
+  dailyTimestamps = dailyMessages.keys.sort
+  dailyTimestamps.each { |timestamp|
+    dailyMessages[timestamp].each { |message| processMessage(activeFile.get(), message) }
+  }
 }
 
 if yearFile
