@@ -102,41 +102,79 @@ class InputFileParser
   end
 
   def openAndReadInput(input)
-    #
-    # Read chat file in binary so that ruby does not touch line endings.
-    #
-
     if input.directory?
       @inputType = "dir"
       @inputDir = input
-      chatTxtFileName = input.join("_chat.txt")
-
-      if !chatTxtFileName.readable?
-        puts "Oops: \"" + chatTxtFileName.to_s + "\" does not exist or is not readable."
-        exit
-      end
-
-      chatTxtFile = File.open(chatTxtFileName, "rb")
-      chatTxt = chatTxtFile.read
-      chatTxtFile.close
+      txtFiles = Dir.entries(@inputDir).select { |fileName| fileName[-4..-1] == ".txt" }
     elsif input.extname == ".zip"
       require 'zip'
       @inputType = "zip"
       @zipFile = Zip::File.open(input)
-      chatTxt = @zipFile.read("_chat.txt")
+
+      txtFiles = []
+      @zipFile.each { |entry|
+        fileName = entry.to_s
+        if fileName[-4..-1] == ".txt"
+          txtFiles << fileName
+        end
+      }
+    elsif input.extname == ".txt"
+      @inputType = "dir"
+      @inputDir = input.dirname
+      txtFiles = [ input.to_s ]
     else
-      puts "Oops: Unable to read input \"" + input.to_s + "\", must be directory or ZIP file."
+      puts "Oops: Unable to read input \"" + input.to_s + "\"."
       exit
     end
 
-    parseMessages chatTxt
+    checkAndReadTxtFiles(input, txtFiles)
 
-    if @inputType == ".zip"
+    if @inputType == "zip"
       @zipFile.close()
     end
   end
 
-  def parseMessages(chatTxt)
+  #
+  # Read chat file in binary so that ruby does not touch line endings.
+  #
+
+  def checkAndReadTxtFiles(input, txtFiles)
+    #
+    # Expect the input directory to contain exactly one ".txt" file.
+    #
+
+    if txtFiles.size == 0
+      puts "Oops: \"" + input.to_s + "\" does not contain a text file."
+      exit 1
+    elsif txtFiles.size > 1
+      puts "Oops: \"" + input.to_s + "\" contains more than one text files."
+      exit 1
+    end
+
+    if @inputType == "dir"
+      chatTxtFileName = @inputDir.join(txtFiles[0])
+      chatTxtFile = File.open(chatTxtFileName, "rb")
+      chatTxt = chatTxtFile.read
+      chatTxtFile.close
+    elsif @inputType == "zip"
+      chatTxt = @zipFile.read(txtFiles[0])
+    end
+
+    #
+    # If the conversation starts with "<<<" or ">>>", it is a Threema
+    # chat. Else, we assume WhatsApp chat.
+    #
+
+    magic = chatTxt[0..3]
+
+    if magic == "<<< " or magic == ">>> "
+      parseThreemaMessages chatTxt
+    else
+      parseWhatsAppMessages chatTxt
+    end
+  end
+
+  def parseWhatsAppMessages(chatTxt)
     #
     # Message lines are separated by CR LF.
     #
@@ -145,30 +183,29 @@ class InputFileParser
       # Force message to UTF-8 after reading the file in binary.
       #
 
-      parseMessage messageLine.force_encoding("UTF-8")
+      parseWhatsAppMessage messageLine.force_encoding("UTF-8")
     }
   end
 
-  def parseMessage(messageLine)
+  def parseWhatsAppMessage(messageLine)
     #
-    # Each message line starts with a "date, time:", sometimes preceded by a
+    # Message line starts with a "date, time:", sometimes preceded by a
     # unicode character.
     #
 
     timestampMatch = messageLine.match('(\[)?(\d{2}.\d{2}.\d{2}, \d{2}:\d{2}:\d{2})(\])?(:)?')
     raise "Oops" if timestampMatch == nil
 
-    beginOfTimestamp = timestampMatch.begin(2)
+    timestamp = DateTime.strptime(timestampMatch[2].strip, "%d.%m.%y, %H:%M:%S")
+
+    #
+    # After the timestamp, there is usually the sender ID followed by a ":",
+    # except for system messages. Assumption: system messages never contain
+    # a ":".
+    #
+
     endOfTimestamp = timestampMatch.end(2)
-    timestampString = messageLine[beginOfTimestamp..endOfTimestamp-1].strip
-    timestamp = DateTime.strptime(timestampString, "%d.%m.%y, %H:%M:%S")
-
-    #
-    # After the timestamp, there is usually the sender ID followed by a ":".
-    # Assumption: system messages never contain a ":".
-    #
-
-    endOfSenderId = messageLine.index(":", endOfTimestamp+1)
+    endOfSenderId = messageLine.index(":", endOfTimestamp + 1)
 
     if endOfSenderId
       senderId = messageLine[endOfTimestamp+1..endOfSenderId-1].strip
@@ -188,7 +225,69 @@ class InputFileParser
     # export feature.
     #
 
-    if attachmentMatch = message.match('([0-9A-Za-z\- ]+\.[A-Za-z0-9]+).*<[^\s>]+>')
+    attachmentMatch = message.match('([0-9A-Za-z\- ]+\.[A-Za-z0-9]+).*<[^\s>]+>')
+
+    if attachmentMatch != nil
+      message = nil
+      attachmentFileName = attachmentMatch[1]
+      copyAttachment(attachmentFileName)
+    else
+      attachmentFileName = nil
+    end
+
+    message = {
+      "timestamp" => timestamp,
+      "senderId" => senderId,
+      "text" => message,
+      "attachment" => attachmentFileName
+    }
+
+    recordMessage message
+  end
+
+  def parseThreemaMessages(chatTxt)
+    #
+    # Message lines are separated by CR LF.
+    #
+    chatTxt.split("\r\n").each { |messageLine|
+      #
+      # Force message to UTF-8 after reading the file in binary.
+      #
+
+      parseThreemaMessage messageLine.force_encoding("UTF-8")
+    }
+  end
+
+  def parseThreemaMessage(messageLine)
+    #
+    # Message line starts with "<<<" for incoming messages, ">>>" for
+    # outgoing messages, followed by a timestamp, then ":" and the
+    # message.
+    #
+    # The timestamp looks like "<date> at <time> <timezone>", where
+    # date is "<day>. <name-of-month> <year>" and
+    # time is "<hour>:<min>:<sec>". The timezone is ignored, all
+    # timestamps are recorded in local time, which is appropriate.
+    #
+
+    senderId = messageLine[0..2]
+    raise "Oops" if senderId != "<<<" and senderId != ">>>"
+
+    timestampMatch=messageLine.match('(\d{1,2}. [A-Za-z]+ \d{4} at \d{2}:\d{2}:\d{2})')
+    raise "Oops" if (timestampMatch == nil) or timestampMatch.begin(1) != 4
+
+    timestamp = DateTime.strptime(timestampMatch[1], "%d. %B %Y at %H:%M:%S")
+    endOfTimestamp = timestampMatch.end(1)
+    endOfPrefix = messageLine.index(":", endOfTimestamp + 1)
+    message = messageLine[endOfPrefix+1..-1].strip
+
+    #
+    # For attachments, the message looks like "<Type> (<filename>)".
+    #
+
+    attachmentMatch = message.match('[A-Za-z]+ \(([a-z0-9]+\.[A-Za-z0-9]+)\)')
+
+    if attachmentMatch != nil
       message = nil
       attachmentFileName = attachmentMatch[1]
       copyAttachment(attachmentFileName)
