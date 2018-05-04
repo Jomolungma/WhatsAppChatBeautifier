@@ -97,12 +97,25 @@ This folder contains sample background images for the WhatsApp conversations.
 These images have been downloaded from [Pixabay](https://pixabay.com/de/).
 Images and Videos on Pixabay are released under Creative Commons CC0.
 
+## Threema
+
+WhatsAppChatBeautifier also includes preliminary support for chats exported
+from the [Threema](https://threema.ch/) messenger.
+
+However, WhatsAppChatBeautifier is unable to decrypt the ZIP file formt
+used by Threema. Please unzip the ZIP file using software that supports
+AES encryption, such as [7-Zip](https://www.7-zip.org/) to extract the
+ZIP file.
+
+In single chats, incoming messages use the sender `<<<`, outgoing messages
+the sender `>>>`. Use the `--map` option to map these sender ids to names.
+
 ## Caveats
 
-WhatsApp uses some localized strings in its exported chats, such as "<attached>"
-translated to the phone's language to reference attached media, and localized
-timestamps for its messages. Switch your phone to English while exporting
-chats to avoid any localization issues.
+WhatsApp and Threma use localized strings in its exported chats, such
+as "<attached>" translated to the phone's language to reference attached
+media, and localized timestamps for its messages. Switch your phone to
+English while exporting chats to avoid any localization issues.
 
 Image captions are not exported by WhatsApp.
 
