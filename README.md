@@ -99,13 +99,13 @@ Images and Videos on Pixabay are released under Creative Commons CC0.
 
 ## Threema
 
-WhatsAppChatBeautifier also includes preliminary support for chats exported
-from the [Threema](https://threema.ch/) messenger.
+WhatsAppChatBeautifier also includes preliminary support for single chats
+exported from the [Threema](https://threema.ch/) messenger.
 
-However, WhatsAppChatBeautifier is unable to decrypt the ZIP file formt
+However, WhatsAppChatBeautifier is unable to decrypt the ZIP file format
 used by Threema. Please unzip the ZIP file using software that supports
 AES encryption, such as [7-Zip](https://www.7-zip.org/) to extract the
-ZIP file.
+ZIP file, then point WhatsAppChatBeautifier to the extracted contents.
 
 In single chats, incoming messages use the sender `<<<`, outgoing messages
 the sender `>>>`. Use the `--map` option to map these sender ids to names.
