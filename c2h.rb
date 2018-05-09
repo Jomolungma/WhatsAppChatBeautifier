@@ -23,7 +23,6 @@ class CmdLine
     options.indexByMonth = false
     options.indexByYear = false
     options.emojiDir = nil
-    options.backgroundImageName = ""
     options.imageWidth = 320
     options.imageHeigth = 240
     options.emojiWidth = 20
