@@ -95,12 +95,119 @@ end
 
 #
 # ----------------------------------------------------------------------
+# Message handling.
+# ----------------------------------------------------------------------
+#
+
+class Messages
+  #
+  # messages is a hash "year-month-day" -> dailyMessages
+  # dailyMessages is a hash "hour-minute-second" -> setOfMessages
+  # setOfMessages is an array
+  #
+
+  def initialize()
+    $messageCount = 0
+    $messages = Hash.new
+    $senderIds = Hash.new
+    $allYears = Hash.new
+    $allMonths = Hash.new
+  end
+
+  def recordMessage(timestamp, senderId, text, attachmentFileName)
+    year=timestamp.strftime("%Y")
+    month=timestamp.strftime("%Y-%m")
+    day=timestamp.strftime("%Y-%m-%d")
+    sec=timestamp.strftime("%H:%M:%S")
+
+    $allYears[year] = true
+    $allMonths[month] = true
+
+    #
+    # Check for and avoid duplicates.
+    #
+
+    if !$messages.include?(day)
+      $messages[day] = Hash.new
+    end
+
+    if !$messages[day].include?(sec)
+      $messages[day][sec] = Array.new
+    end
+
+    message = {
+      "timestamp" => timestamp,
+      "senderId" => senderId,
+      "text" => text,
+      "attachment" => attachmentFileName
+    }
+
+    if !$messages[day][sec].include?(message)
+      $messages[day][sec] << message
+    end
+
+    #
+    # Index sender ids.
+    #
+
+    if senderId and !$senderIds.include?(senderId)
+      $senderIds[senderId] = true
+    end
+
+    #
+    # Count messages.
+    #
+
+    $messageCount = $messageCount + 1
+  end
+
+  def post()
+    #
+    # Cleanse sender ids for "me" and "map".
+    #
+
+    $mappedSenderIds = {}
+
+    $senderIds.each_key { |senderId|
+      mappedSenderId = senderId
+      $options.senderIdMap.keys.each { |key|
+        if senderId.include?(key)
+          mappedSenderId = $options.senderIdMap[key]
+        end
+      }
+
+      $options.senderIdMap[senderId] = mappedSenderId
+      $mappedSenderIds[mappedSenderId] = true
+    }
+
+    #
+    # If there are only two sender ids, and the "me" option was not given,
+    # choose one of them as "me."
+    #
+
+    if $mappedSenderIds.size == 2 and $options.me == nil
+      $options.me = $senderIds.keys[0]
+    end
+
+    #
+    # Get arrays of all years, months, days.
+    #
+
+    $allYears = $allYears.keys.sort
+    $allMonths = $allMonths.keys.sort
+    $allDays = $messages.keys.sort
+  end
+end
+
+#
+# ----------------------------------------------------------------------
 # Input file parsing.
 # ----------------------------------------------------------------------
 #
 
 class InputFileParser
-  def initialize(input)
+  def initialize(messages, input)
+    @messages = messages
     openAndReadInput(input)
   end
 
@@ -238,14 +345,29 @@ class InputFileParser
       attachmentFileName = nil
     end
 
-    message = {
-      "timestamp" => timestamp,
-      "senderId" => senderId,
-      "text" => message,
-      "attachment" => attachmentFileName
-    }
+    @messages.recordMessage(timestamp, senderId, message, attachmentFileName)
+  end
 
-    recordMessage message
+  def nameToMonth(month)
+    #
+    # Threema timestamps use local month names. Support english and a few
+    # other select languages. Use regexps and "." to keep this script file
+    # ASCII.
+    #
+
+    allMonthNames = {
+      "English" => [ "January", "February", "March", "April", "May",  "June",  "July",  "August", "September",  "October", "November",  "December"  ],
+      "German"  => [ "Januar",  "Februar",  "M.rz",  "April", "Mai",  "Juni",  "Juli",  "August", "September",  "Oktober", "November",  "Dezember"  ],
+      "Spanish" => [ "Enero",   "Febrero",  "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre" ],
+      "French"  => [ "Janvier", "F.vrier",  "Mars",  "Avril", "Mai",  "Juin",  "Juillet", "Ao.t", "Septembre",  "Octobre", "Novembre",  "D.cembre"  ],
+    }
+    found = nil
+    allMonthNames.each_value { |monthNames|
+      foundHere = monthNames.index { |name| month.match(name) != nil }
+      found = foundHere + 1 if foundHere != nil
+    }
+    raise "Oops: Invalid month \"#{month}\"." if found == nil
+    return found
   end
 
   def parseThreemaMessages(chatTxt)
@@ -261,6 +383,16 @@ class InputFileParser
     }
   end
 
+  def parseThreemaTimestamp(timestampMatch)
+    day = timestampMatch[1].to_i
+    month = nameToMonth(timestampMatch[2])
+    year = timestampMatch[3].to_i
+    hour = timestampMatch[4].to_i
+    min = timestampMatch[5].to_i
+    sec = timestampMatch[6].to_i
+    return DateTime.new(year,month,day,hour,min,sec)
+  end
+
   def parseThreemaMessage(messageLine)
     #
     # Message line starts with "<<<" for incoming messages, ">>>" for
@@ -274,13 +406,13 @@ class InputFileParser
     #
 
     senderId = messageLine[0..2]
-    raise "Oops" if senderId != "<<<" and senderId != ">>>"
+    raise "Oops: Unexpected Threema message." if messageLine[0..3] != "<<< " and messageLine[0..3] != ">>> "
 
-    timestampMatch=messageLine.match('(\d{1,2}. [A-Za-z]+ \d{4} at \d{2}:\d{2}:\d{2})')
-    raise "Oops" if (timestampMatch == nil) or timestampMatch.begin(1) != 4
+    timestampMatch=messageLine.match('(\d{1,2}). ([^\s]+) (\d{4}) [^\s]+ (\d{2}):(\d{2}):(\d{2})')
+    raise "Oops: Unexpected Threema timestamp." if (timestampMatch == nil) or timestampMatch.begin(0) != 4
 
-    timestamp = DateTime.strptime(timestampMatch[1], "%d. %B %Y at %H:%M:%S")
-    endOfTimestamp = timestampMatch.end(1)
+    timestamp = parseThreemaTimestamp(timestampMatch)
+    endOfTimestamp = timestampMatch.end(0)
     endOfPrefix = messageLine.index(":", endOfTimestamp + 1)
     message = messageLine[endOfPrefix+1..-1].strip
 
@@ -288,7 +420,7 @@ class InputFileParser
     # For attachments, the message looks like "<Type> (<filename>)".
     #
 
-    attachmentMatch = message.match('[A-Za-z]+ \(([a-z0-9]+\.[A-Za-z0-9]+)\)')
+    attachmentMatch = message.match('[^\s]+ \(([a-z0-9]+\.[A-Za-z0-9]+)\)')
 
     if attachmentMatch != nil
       message = nil
@@ -298,57 +430,7 @@ class InputFileParser
       attachmentFileName = nil
     end
 
-    message = {
-      "timestamp" => timestamp,
-      "senderId" => senderId,
-      "text" => message,
-      "attachment" => attachmentFileName
-    }
-
-    recordMessage message
-  end
-
-  def recordMessage(message)
-    timestamp=message["timestamp"]
-
-    year=timestamp.strftime("%Y")
-    month=timestamp.strftime("%Y-%m")
-    day=timestamp.strftime("%Y-%m-%d")
-    sec=timestamp.strftime("%H:%M:%S")
-
-    $allYears[year] = true
-    $allMonths[month] = true
-
-    #
-    # Check for and avoid duplicates.
-    #
-
-    if !$messages.include?(day)
-      $messages[day] = Hash.new
-    end
-
-    if !$messages[day].include?(sec)
-      $messages[day][sec] = Array.new
-    end
-
-    if !$messages[day][sec].include?(message)
-      $messages[day][sec] << message
-    end
-
-    #
-    # Index sender ids.
-    #
-
-    senderId = message["senderId"]
-    if senderId and !$senderIds.include?(senderId)
-      $senderIds[senderId] = true
-    end
-
-    #
-    # Count messages.
-    #
-
-    $messageCount = $messageCount + 1
+    @messages.recordMessage(timestamp, senderId, message, attachmentFileName)
   end
 
   def copyAttachment(attachmentFileName)
@@ -427,399 +509,559 @@ end
 
 #
 # ----------------------------------------------------------------------
-# Output generation helpers.
+# HTML output.
 # ----------------------------------------------------------------------
 #
 
-#
-# Format a date string "January 1, 2018".
-#
+module HtmlOutput
+  class HtmlOutputFile
+    include HtmlOutput
 
-def formatDay(date)
-  return date.strftime("%B %-d, %Y")
-end
-
-def formatMonthAndYear(date)
-  return date.strftime("%B %Y")
-end
-
-def formatMonth(date)
-  return date.strftime("%B")
-end
-
-def formatYear(date)
-  return date.strftime("%Y")
-end
-
-#
-# Replace non-ascii characters in a message with their HTML encoding.
-#
-
-def uniToHtml(messageText)
-  escapeCharacters="<>&"
-  html=""
-  i=0
-  l=messageText.length
-  s=0
-  while i < l
-    c = messageText[i]
-    if !c.ascii_only? or escapeCharacters.index(c)
-      cp = c.codepoints[0]
-      if s != i
-        html.concat(messageText[s..i-1])
+    def initialize(name)
+      @fileName = $outputDir.join(name)
+      @file = File.open(@fileName, "w")
+      printHtmlHeader()
+    end
+    def get()
+      return @file
+    end
+    def close()
+      printHtmlFooter()
+      @file.close()
+    end
+    def puts(str)
+      @file.puts(str)
+    end
+    def printHtmlHeader()
+      puts("<!DOCTYPE html>")
+      puts("<html>")
+      puts("<head>")
+      if $options.title
+        htmlTitle = uniToHtml($options.title)
+        puts("<title>#{htmlTitle}</title>")
       end
-      html.concat("&#%d;" % cp)
-      s = i + 1
-    end
-    i = i + 1
-  end
-  html.concat(messageText[s..-1])
-  html.gsub("\n", "<br>")
-end
-
-#
-# Replace emojis (after HTML encoding).
-#
-
-def eatConsecutiveUnicode(text)
-  codepoints = []
-  while md = text.match("^&#([0-9]+);")
-    codepoints << md[1].to_i
-    text = text[md.end(0)..-1]
-  end
-  return codepoints, text
-end
-
-def findLongestUnicodeEmojiSubsequence(codepoints)
-  basename=codepoints.join("_")
-  if codepoints.length > 0
-    basename=codepoints.join("_")
-    if $emojiFiles.include?(basename)
-      return codepoints.length
-    else
-      return findLongestUnicodeEmojiSubsequence(codepoints[0..-2])
-    end
-  else
-    return 0
-  end
-end
-
-def replaceEmojisWithImages(messageText)
-  output = ""
-  lastEmojiWasText = true
-  while i = messageText.index('&')
-    if i != 0
-      output.concat(messageText[0..i-1])
-    end
-    codepoints, remainder = eatConsecutiveUnicode(messageText[i..-1])
-    codepoints.delete_if { |cp| (cp >= 65024)  and (cp <= 65039)  } # Delete variation selectors.
-
-    while codepoints.length > 0
-      hexCodepoints = codepoints.map { |cp| sprintf("%x",cp) }      # Map to hexadecimal.
-      subLength = findLongestUnicodeEmojiSubsequence(hexCodepoints)
-      if subLength > 0
-        basename=hexCodepoints[0..subLength-1].join("_")
-        output.concat("<img width=\"#{$options.emojiWidth}\" height=\"#{$options.emojiHeight}\" src=\"emoji_u#{basename}#{$emojiExt}\">")
-        codepoints = codepoints[subLength..-1]
-        $emojiFiles[basename] = true
-        lastEmojiWasText = false
+      puts("<link rel=\"stylesheet\" href=\"c2h.css\">")
+      puts("</head>")
+      if $options.backgroundImageName
+        backgroundFileName = Pathname.new($options.backgroundImageName)
+        backgroundBaseName = backgroundFileName.basename
+        puts("<body background=\"#{backgroundBaseName}\">")
       else
-        cp0 = codepoints[0]
-        if cp0 < 127995 or cp0 > 127999
-          printUnicode = true
-          lastEmojiWasText = true
-        else
-          #
-          # Print skin tone modifier only if the preceding emoji was printed as
-          # unicode text, so that the browser may choose the correct image for
-          # this skin tone. If the preceding emoji was rendered as an image, then
-          # the emoji image set does not include different images for different
-          # skin tones; in this case, do not print the skin tone modifier as it
-          # would be useless.
-          #
-
-          printUnicode = lastEmojiWasText
-          lastEmojiWasText = false
-        end
-        if printUnicode
-          output.concat(sprintf("&#%d;", cp0))
-        end
-        codepoints = codepoints[1..-1]
+        puts("<body>")
       end
     end
-
-    messageText = remainder
-  end
-  output.concat(messageText)
-  return output
-end
-
-#
-# Replace URLs in a message text with links to that URL.
-#
-
-def replaceUrlsWithLinks(messageText)
-  s = 0
-  result = ""
-  urlRegex = "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
-  while urlMatch = messageText.match(urlRegex, s)
-    if urlMatch.begin(0) > s
-      result.concat(messageText[s..urlMatch.begin(0)-1])
+    def printHtmlFooter()
+      puts("</body>")
+      puts("</html>")
     end
-    result.concat("<a href=\"")
-    result.concat(urlMatch[0]);
-    result.concat("\">")
-    result.concat(urlMatch[0])
-    result.concat("</a>")
-    s = urlMatch.end(0)
-  end
-  return result.concat(messageText[s..-1])
-end
-
-#
-# Format message content.
-#
-
-def formatMessageText(messageText)
-  return replaceEmojisWithImages(replaceUrlsWithLinks(uniToHtml(messageText)))
-end
-
-#
-# Is this a message from "me"?
-#
-
-def isMyMessage(message)
-  senderIdToUse = message["senderId"]
-  if $options.senderIdMap.include?(senderIdToUse)
-    senderIdToUse = $options.senderIdMap[senderIdToUse]
-  end
-  return senderIdToUse == $options.me
-end
-
-#
-# Get CSS style to use for this message.
-#
-
-def getMsgClass(message)
-  return isMyMessage(message) ? "userMessage-Me" : "userMessage-Them"
-end
-
-#
-# Print senderId.
-#
-
-def printSenderId(file, message)
-  senderIdToPrint = message["senderId"]
-  if $options.senderIdMap.include?(senderIdToPrint)
-    senderIdToPrint = $options.senderIdMap[senderIdToPrint]
   end
 
   #
-  # Do not print sender id if:
-  # - There are only two participants to the chat. (In this case, if the
-  #   "--me" option was not given, one of them is chosen as "me".)
-  # - There are more than two participants to the chat and the message is
-  #   mine.
+  # Date formatting helpers.
   #
 
-  noSenderId = (($mappedSenderIds.size == 2) or isMyMessage(message))
-
-  if !noSenderId
-    file.puts("<span class=\"senderId\">" + uniToHtml(senderIdToPrint) + "</span> ")
+  def formatDay(date)
+    return date.strftime("%B %-d, %Y")
   end
-end
 
-#
-# Scale image.
-#
-
-def scaleImage(width, height)
-  if width > $options.imageWidth or height > $options.imageHeigth
-    widthScale = width.to_f / $options.imageWidth.to_f
-    heightScale = height.to_f / $options.imageHeigth.to_f
-    scale = (widthScale > heightScale) ? widthScale : heightScale
-    newWidth = (width / scale).to_i
-    newHeight = (height / scale).to_i
-  else
-    newWidth = width
-    newHeight = height
+  def formatMonthAndYear(date)
+    return date.strftime("%B %Y")
   end
-  return [newWidth, newHeight]
-end
 
-#
-# Process a regular user message.
-#
+  def formatMonth(date)
+    return date.strftime("%B")
+  end
 
-def processRegularUserMessage(file, message)
-  file.puts(formatMessageText(message["text"]))
-end
+  def formatYear(date)
+    return date.strftime("%Y")
+  end
 
-#
-# Process a message that is an image attachment.
-#
-
-def processImageAttachmentMessage(file, attachmentFileName, inputFileName)
   #
-  # If the "thumbnails" option is given, we check the image size, and scale
-  # large images down to our "thumbnail" size.
+  # Replace non-ascii characters in a message with their HTML encoding.
   #
 
-  imgFile, imgWidth, imgHeight = imageSize(inputFileName)
-
-  if imgFile == nil
-    file.puts("<img src=\"#{attachmentFileName.to_s}\">")
-  else
-    width, height = scaleImage(imgWidth, imgHeight)
-    file.puts("<a href=\"#{attachmentFileName.to_s}\">")
-    file.puts("<img width=\"#{width}\" height=\"#{height}\" src=\"" + attachmentFileName.to_s + "\">")
-    file.puts("</a>")
-  end
-end
-
-#
-# Process a message that is an audio attachment.
-#
-
-def processAudioAttachmentMessage(file, attachmentFileName, inputFileName)
-  attachmentFileNameAsString = attachmentFileName.to_s
-  file.puts("<audio controls=\"\">")
-  file.puts("<source src=\"#{attachmentFileNameAsString}\">")
-  file.puts("<a href=\"#{attachmentFileNameAsString}\">#{attachmentFileNameAsString}</a>")
-  file.puts("</audio>")
-end
-
-#
-# Process a message that is an audio attachment.
-#
-
-def processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
-  attachmentFileNameAsString = attachmentFileName.to_s
-  file.puts("<video width=\"#{$options.imageWidth}\" controls=\"\">")
-  file.puts("<source src=\"#{attachmentFileNameAsString}\">")
-  file.puts("<a href=\"#{attachmentFileNameAsString}\">#{attachmentFileNameAsString}</a>")
-  file.puts("</video>")
-end
-
-#
-# Process a generic attachment (e.g., a PDF file).
-#
-
-def processGenericAttachmentMessage(file, attachmentFileName, inputFileName)
-  attachmentFileNameAsString = attachmentFileName.to_s
-  file.puts("<a href=\"#{attachmentFileNameAsString}\">#{attachmentFileNameAsString}</a>")
-end
-
-#
-# Process a message that is an attachment.
-#
-
-def processAttachmentMessage(file, message)
-  attachmentFileName = Pathname.new(message["attachment"])
-  attachmentFileType = attachmentFileName.extname[1..-1]
-  inputFileName = $outputDir.join(attachmentFileName)
-
-  case (attachmentFileType)
-  when "jpg", "png" then
-    processImageAttachmentMessage(file, attachmentFileName, inputFileName)
-  when "mp4" then
-    processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
-  when "opus" then
-    processAudioAttachmentMessage(file, attachmentFileName, inputFileName)
-  else
-    processGenericAttachmentMessage(file, attachmentFileName, inputFileName)
-  end
-end
-
-#
-# Process a user message.
-#
-
-def processUserMessage(file, message)
-  msgClass = getMsgClass(message)
-  file.puts("<div class=\"overflow\">")
-  file.puts("<div class=\"#{msgClass} userMessage\">")
-
-  printSenderId(file, message)
-
-  if !message["attachment"]
-    processRegularUserMessage(file, message)
-  else
-    processAttachmentMessage(file, message)
-  end
-
-  file.puts("<div class=\"timestamp\">")
-  file.puts(message["timestamp"].strftime("%H:%M"))
-  file.puts("</div>")
-  file.puts("</div>")
-  file.puts("</div>")
-end
-
-#
-# Process a system message.
-#
-
-def processSystemMessage(file, message)
-  file.puts("<div class=\"systemMessage\">")
-  file.puts("<p align=\"center\">")
-  file.puts(formatMessageText(message["text"]))
-  file.puts("</p>")
-  file.puts("</div>")
-end
-
-#
-# Process a message.
-#
-
-def processMessage(file, message)
-  if message["senderId"]
-    processUserMessage(file, message)
-  else
-    processSystemMessage(file, message)
-  end
-end
-
-#
-# Generate HTML.
-#
-
-class HtmlOutputFile
-  def initialize(name)
-    @fileName = $outputDir.join(name)
-    @file = File.open(@fileName, "w")
-    printHtmlHeader()
-  end
-  def get()
-    return @file
-  end
-  def close()
-    printHtmlFooter()
-    @file.close()
-  end
-  def puts(str)
-    @file.puts(str)
-  end
-  def printHtmlHeader()
-    puts("<!DOCTYPE html>")
-    puts("<html>")
-    puts("<head>")
-    if $options.title
-      htmlTitle = uniToHtml($options.title)
-      puts("<title>#{htmlTitle}</title>")
+  def uniToHtml(messageText)
+    escapeCharacters="<>&"
+    html=""
+    i=0
+    l=messageText.length
+    s=0
+    while i < l
+      c = messageText[i]
+      if !c.ascii_only? or escapeCharacters.index(c)
+        cp = c.codepoints[0]
+        if s != i
+          html.concat(messageText[s..i-1])
+        end
+        html.concat("&#%d;" % cp)
+        s = i + 1
+      end
+      i = i + 1
     end
-    puts("<link rel=\"stylesheet\" href=\"c2h.css\">")
-    puts("</head>")
-    if $options.backgroundImageName
-      backgroundFileName = Pathname.new($options.backgroundImageName)
-      backgroundBaseName = backgroundFileName.basename
-      puts("<body background=\"#{backgroundBaseName}\">")
+    html.concat(messageText[s..-1])
+    html.gsub("\n", "<br>")
+  end
+
+  #
+  # Replace emojis (after HTML encoding).
+  #
+
+  def eatConsecutiveUnicode(text)
+    codepoints = []
+    while md = text.match("^&#([0-9]+);")
+      codepoints << md[1].to_i
+      text = text[md.end(0)..-1]
+    end
+    return codepoints, text
+  end
+
+  def findLongestUnicodeEmojiSubsequence(codepoints)
+    basename=codepoints.join("_")
+    if codepoints.length > 0
+      basename=codepoints.join("_")
+      if $emojiFiles.include?(basename)
+        return codepoints.length
+      else
+        return findLongestUnicodeEmojiSubsequence(codepoints[0..-2])
+      end
     else
-      puts("<body>")
+      return 0
     end
   end
-  def printHtmlFooter()
-    puts("</body>")
-    puts("</html>")
+
+  def replaceEmojisWithImages(messageText)
+    output = ""
+    lastEmojiWasText = true
+    while i = messageText.index('&')
+      if i != 0
+        output.concat(messageText[0..i-1])
+      end
+      codepoints, remainder = eatConsecutiveUnicode(messageText[i..-1])
+      codepoints.delete_if { |cp| (cp >= 65024)  and (cp <= 65039)  } # Delete variation selectors.
+
+      while codepoints.length > 0
+        hexCodepoints = codepoints.map { |cp| sprintf("%x",cp) }      # Map to hexadecimal.
+        subLength = findLongestUnicodeEmojiSubsequence(hexCodepoints)
+        if subLength > 0
+          basename=hexCodepoints[0..subLength-1].join("_")
+          output.concat("<img width=\"#{$options.emojiWidth}\" height=\"#{$options.emojiHeight}\" src=\"emoji_u#{basename}#{$emojiExt}\">")
+          codepoints = codepoints[subLength..-1]
+          $emojiFiles[basename] = true
+          lastEmojiWasText = false
+        else
+          cp0 = codepoints[0]
+          if cp0 < 127995 or cp0 > 127999
+            printUnicode = true
+            lastEmojiWasText = true
+          else
+            #
+            # Print skin tone modifier only if the preceding emoji was printed as
+            # unicode text, so that the browser may choose the correct image for
+            # this skin tone. If the preceding emoji was rendered as an image, then
+            # the emoji image set does not include different images for different
+            # skin tones; in this case, do not print the skin tone modifier as it
+            # would be useless.
+            #
+
+            printUnicode = lastEmojiWasText
+            lastEmojiWasText = false
+          end
+          if printUnicode
+            output.concat(sprintf("&#%d;", cp0))
+          end
+          codepoints = codepoints[1..-1]
+        end
+      end
+
+      messageText = remainder
+    end
+    output.concat(messageText)
+    return output
+  end
+
+  #
+  # Replace URLs in a message text with links to that URL.
+  #
+
+  def replaceUrlsWithLinks(messageText)
+    s = 0
+    result = ""
+    urlRegex = "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
+    while urlMatch = messageText.match(urlRegex, s)
+      if urlMatch.begin(0) > s
+        result.concat(messageText[s..urlMatch.begin(0)-1])
+      end
+      result.concat("<a href=\"")
+      result.concat(urlMatch[0]);
+      result.concat("\">")
+      result.concat(urlMatch[0])
+      result.concat("</a>")
+      s = urlMatch.end(0)
+    end
+    return result.concat(messageText[s..-1])
+  end
+
+  #
+  # Format message content.
+  #
+
+  def formatMessageText(messageText)
+    return replaceEmojisWithImages(replaceUrlsWithLinks(uniToHtml(messageText)))
+  end
+
+  #
+  # Is this a message from "me"?
+  #
+
+  def isMyMessage(message)
+    senderIdToUse = message["senderId"]
+    if $options.senderIdMap.include?(senderIdToUse)
+      senderIdToUse = $options.senderIdMap[senderIdToUse]
+    end
+    return senderIdToUse == $options.me
+  end
+
+  #
+  # Get CSS style to use for this message.
+  #
+
+  def getMsgClass(message)
+    return isMyMessage(message) ? "userMessage-Me" : "userMessage-Them"
+  end
+
+  #
+  # Print senderId.
+  #
+
+  def printSenderId(file, message)
+    senderIdToPrint = message["senderId"]
+    if $options.senderIdMap.include?(senderIdToPrint)
+      senderIdToPrint = $options.senderIdMap[senderIdToPrint]
+    end
+
+    #
+    # Do not print sender id if:
+    # - There are only two participants to the chat. (In this case, if the
+    #   "--me" option was not given, one of them is chosen as "me".)
+    # - There are more than two participants to the chat and the message is
+    #   mine.
+    #
+
+    noSenderId = (($mappedSenderIds.size == 2) or isMyMessage(message))
+
+    if !noSenderId
+      file.puts("<span class=\"senderId\">" + uniToHtml(senderIdToPrint) + "</span> ")
+    end
+  end
+
+  #
+  # Scale image.
+  #
+
+  def scaleImage(width, height)
+    if width > $options.imageWidth or height > $options.imageHeigth
+      widthScale = width.to_f / $options.imageWidth.to_f
+      heightScale = height.to_f / $options.imageHeigth.to_f
+      scale = (widthScale > heightScale) ? widthScale : heightScale
+      newWidth = (width / scale).to_i
+      newHeight = (height / scale).to_i
+    else
+      newWidth = width
+      newHeight = height
+    end
+    return [newWidth, newHeight]
+  end
+
+  #
+  # Process a regular user message.
+  #
+
+  def processRegularUserMessage(file, message)
+    file.puts(formatMessageText(message["text"]))
+  end
+
+  #
+  # Process a message that is an image attachment.
+  #
+
+  def processImageAttachmentMessage(file, attachmentFileName, inputFileName)
+    #
+    # If the "thumbnails" option is given, we check the image size, and scale
+    # large images down to our "thumbnail" size.
+    #
+
+    imgFile, imgWidth, imgHeight = imageSize(inputFileName)
+
+    if imgFile == nil
+      file.puts("<img src=\"#{attachmentFileName.to_s}\">")
+    else
+      width, height = scaleImage(imgWidth, imgHeight)
+      file.puts("<a href=\"#{attachmentFileName.to_s}\">")
+      file.puts("<img width=\"#{width}\" height=\"#{height}\" src=\"" + attachmentFileName.to_s + "\">")
+      file.puts("</a>")
+    end
+  end
+
+  #
+  # Process a message that is an audio attachment.
+  #
+
+  def processAudioAttachmentMessage(file, attachmentFileName, inputFileName)
+    attachmentFileNameAsString = attachmentFileName.to_s
+    file.puts("<audio controls=\"\">")
+    file.puts("<source src=\"#{attachmentFileNameAsString}\">")
+    file.puts("<a href=\"#{attachmentFileNameAsString}\">#{attachmentFileNameAsString}</a>")
+    file.puts("</audio>")
+  end
+
+  #
+  # Process a message that is an audio attachment.
+  #
+
+  def processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
+    attachmentFileNameAsString = attachmentFileName.to_s
+    file.puts("<video width=\"#{$options.imageWidth}\" controls=\"\">")
+    file.puts("<source src=\"#{attachmentFileNameAsString}\">")
+    file.puts("<a href=\"#{attachmentFileNameAsString}\">#{attachmentFileNameAsString}</a>")
+    file.puts("</video>")
+  end
+
+  #
+  # Process a generic attachment (e.g., a PDF file).
+  #
+
+  def processGenericAttachmentMessage(file, attachmentFileName, inputFileName)
+    attachmentFileNameAsString = attachmentFileName.to_s
+    file.puts("<a href=\"#{attachmentFileNameAsString}\">#{attachmentFileNameAsString}</a>")
+  end
+
+  #
+  # Process a message that is an attachment.
+  #
+
+  def processAttachmentMessage(file, message)
+    attachmentFileName = Pathname.new(message["attachment"])
+    attachmentFileType = attachmentFileName.extname[1..-1]
+    inputFileName = $outputDir.join(attachmentFileName)
+
+    case (attachmentFileType)
+    when "jpg", "png" then
+      processImageAttachmentMessage(file, attachmentFileName, inputFileName)
+    when "mp4" then
+      processVideoAttachmentMessage(file, attachmentFileName, inputFileName)
+    when "opus" then
+      processAudioAttachmentMessage(file, attachmentFileName, inputFileName)
+    else
+      processGenericAttachmentMessage(file, attachmentFileName, inputFileName)
+    end
+  end
+
+  #
+  # Process a user message.
+  #
+
+  def processUserMessage(file, message)
+    msgClass = getMsgClass(message)
+    file.puts("<div class=\"overflow\">")
+    file.puts("<div class=\"#{msgClass} userMessage\">")
+
+    printSenderId(file, message)
+
+    if !message["attachment"]
+      processRegularUserMessage(file, message)
+    else
+      processAttachmentMessage(file, message)
+    end
+
+    file.puts("<div class=\"timestamp\">")
+    file.puts(message["timestamp"].strftime("%H:%M"))
+    file.puts("</div>")
+    file.puts("</div>")
+    file.puts("</div>")
+  end
+
+  #
+  # Process a system message.
+  #
+
+  def processSystemMessage(file, message)
+    file.puts("<div class=\"systemMessage\">")
+    file.puts("<p align=\"center\">")
+    file.puts(formatMessageText(message["text"]))
+    file.puts("</p>")
+    file.puts("</div>")
+  end
+
+  #
+  # Process a message.
+  #
+
+  def processMessage(file, message)
+    if message["senderId"]
+      processUserMessage(file, message)
+    else
+      processSystemMessage(file, message)
+    end
+  end
+
+  class Generator
+    include HtmlOutput
+
+    def run()
+      #
+      # Copy style sheet file to output directory.
+      #
+
+      scriptFileName = Pathname.new($0)
+      scriptDirectory = scriptFileName.dirname
+      cssBaseName = "c2h.css"
+      IO.copy_stream(scriptDirectory.join(cssBaseName), $outputDir.join(cssBaseName))
+
+      #
+      # Start HTML generation.
+      #
+
+      indexHtmlFileName = "index.html"
+      indexHtmlFile = HtmlOutputFile.new(indexHtmlFileName)
+
+      currentDay = nil
+      currentMonth = nil
+      currentYear = nil
+
+      yearFile = nil
+      monthFile = nil
+      dayFile = nil
+
+      if $options.indexByYear
+        indexHtmlFile.puts("<ul>")
+      elsif $options.indexByMonth
+        indexHtmlFile.puts("<dl>")
+      end
+
+      if $options.title and ($options.indexByYear or $options.indexByMonth)
+        htmlTitle = uniToHtml($options.title)
+        indexHtmlFile.puts("<h1>#{htmlTitle}</h1>")
+      end
+
+      activeFile = indexHtmlFile
+
+      $allDays.each_index { |dayIndex|
+        today = $allDays[dayIndex]
+        timestamp = Date.strptime(today, "%Y-%m-%d")
+        messageYear = timestamp.strftime("%Y")
+        messageMonth = timestamp.strftime("%Y-%m")
+        messageDay = timestamp.strftime("%Y-%m-%d")
+
+        activeFile.puts("<hr>")
+
+        if $options.indexByYear
+          yearFileName = "#{messageYear}.html"
+          if messageYear != currentYear
+            if yearFile
+              yearFile.close()
+            end
+            yearFile = HtmlOutputFile.new(yearFileName)
+            yearString = formatYear(timestamp)
+            indexHtmlFile.puts("<li><a href=\"#{yearFileName}\">#{yearString}</a>")
+            activeFile = yearFile
+            currentYear = messageYear
+          end
+          if messageMonth != currentMonth
+            monthName = formatMonth(timestamp)
+            activeFile.puts("<h1 id=\"#{messageMonth}\">#{monthName}</h1>")
+            indexHtmlFile.puts("<a href=\"#{yearFileName}##{messageMonth}\">#{monthName}</a>")
+            currentMonth = messageMonth
+          end
+          activeFile.puts("<h2 id=\"#{messageDay}\">#{formatDay(timestamp)}</h2>")
+        elsif $options.indexByMonth
+          monthFileName = "#{messageMonth}.html"
+          if messageMonth != currentMonth
+            if monthFile
+              monthFile.close()
+            end
+            monthFile = HtmlOutputFile.new(monthFileName)
+            monthString = formatMonth(timestamp)
+            indexHtmlFile.puts("</dd>")
+            if messageYear != currentYear
+              indexHtmlFile.puts("<dt> #{messageYear}")
+              currentYear = messageYear
+            end
+            indexHtmlFile.puts("<dd><a href=\"#{monthFileName}\">#{monthString}</a>")
+            activeFile = monthFile
+            currentMonth = messageMonth
+          end
+          dayOnly = timestamp.strftime("%d")
+          activeFile.puts("<h1 id=\"#{messageDay}\">#{formatDay(timestamp)}</h1>")
+          indexHtmlFile.puts("<a href=\"#{monthFileName}##{messageDay}\">#{dayOnly}</a>")
+        else
+          if messageYear != currentYear
+            activeFile.puts("<h1 id=\"#{messageYear}\">#{messageYear}</h1>")
+            currentYear = messageYear
+          end
+          if messageMonth != currentMonth
+            monthName = formatMonth(timestamp)
+            activeFile.puts("<h2 id=\"#{messageMonth}\">#{monthName}</h2>")
+            currentMonth = messageMonth
+          end
+          activeFile.puts("<h3 id=\"#{messageDay}\">#{formatDay(timestamp)}</h3>")
+        end
+
+        activeFile.puts("<hr>")
+
+        dailyMessages = $messages[today]
+        dailyTimestamps = dailyMessages.keys.sort
+        dailyTimestamps.each { |timestamp|
+          dailyMessages[timestamp].each { |message| processMessage(activeFile.get(), message) }
+        }
+      }
+
+      if yearFile
+        yearFile.close()
+      end
+
+      if monthFile
+        monthFile.close()
+      end
+
+      if dayFile
+        dayFile.close()
+      end
+
+      if $options.indexByYear
+        indexHtmlFile.puts("</ul>")
+      elsif $options.indexByMonth
+        indexHtmlFile.puts("</dd>")
+        indexHtmlFile.puts("</dl>")
+      end
+
+      indexHtmlFile.close()
+
+      #
+      # Copy background image chosen by the user.
+      #
+
+      if $options.backgroundImageName
+        backgroundFileName = Pathname.new($options.backgroundImageName)
+        backgroundBaseName = backgroundFileName.basename
+        outputFileName = $outputDir.join(backgroundBaseName)
+        IO.copy_stream(backgroundFileName, outputFileName)
+      end
+
+      #
+      # Copy all used emoji files.
+      #
+
+      if $emojiFiles
+        $emojiFiles.each { |fileName, isUsed|
+          if isUsed
+            emojiBaseName = "emoji_u#{fileName}#{$emojiExt}"
+            inputFileName = $emojiDir.join(emojiBaseName)
+            outputFileName = $outputDir.join(emojiBaseName)
+            IO.copy_stream(inputFileName, outputFileName)
+          end
+        }
+      end
+    end
   end
 end
 
@@ -899,210 +1141,21 @@ else
 end
 
 #
-# Copy background image chosen by the user.
-#
-if $options.backgroundImageName
-  backgroundFileName = Pathname.new($options.backgroundImageName)
-  backgroundBaseName = backgroundFileName.basename
-  outputFileName = $outputDir.join(backgroundBaseName)
-  IO.copy_stream(backgroundFileName, outputFileName)
-  puts $backgroundDir
-end
-
-#
 # Read input files.
 #
 
-#
-# messages is a hash "year-month-day" -> dailyMessages
-# dailyMessages is a hash "hour-minute-second" -> setOfMessages
-# setOfMessages is an array
-#
-
-$messageCount = 0
-$messages = Hash.new
-$senderIds = Hash.new
-$allYears = Hash.new
-$allMonths = Hash.new
+messages = Messages.new
 
 $options.input.each { | inputFileOrDir|
-  InputFileParser.new(Pathname.new(inputFileOrDir))
+  InputFileParser.new(messages, Pathname.new(inputFileOrDir))
 }
 
-#
-# Cleanse sender ids for "me" and "map".
-#
-
-$mappedSenderIds = {}
-
-$senderIds.each_key { |senderId|
-  mappedSenderId = senderId
-  $options.senderIdMap.keys.each { |key|
-    if senderId.include?(key)
-      mappedSenderId = $options.senderIdMap[key]
-    end
-  }
-
-  $options.senderIdMap[senderId] = mappedSenderId
-  $mappedSenderIds[mappedSenderId] = true
-}
+messages.post
 
 #
-# If there are only two sender ids, and the "me" option was not given,
-# choose one of them as "me."
+# Output generation.
 #
 
-if $mappedSenderIds.size == 2 and $options.me == nil
-  $options.me = $senderIds.keys[0]
-end
+htmlOutputGenerator = HtmlOutput::Generator.new
+htmlOutputGenerator.run
 
-#
-# Get arrays of all years, months, days.
-#
-
-$allYears = $allYears.keys.sort
-$allMonths = $allMonths.keys.sort
-$allDays = $messages.keys.sort
-
-#
-# Copy style sheet file to output directory.
-#
-
-scriptFileName = Pathname.new($0)
-scriptDirectory = scriptFileName.dirname
-cssBaseName = "c2h.css"
-IO.copy_stream(scriptDirectory.join(cssBaseName), $outputDir.join(cssBaseName))
-
-#
-# Start HTML generation.
-#
-
-indexHtmlFileName = "index.html"
-indexHtmlFile = HtmlOutputFile.new(indexHtmlFileName)
-
-currentDay = nil
-currentMonth = nil
-currentYear = nil
-
-yearFile = nil
-monthFile = nil
-dayFile = nil
-
-if $options.indexByYear
-  indexHtmlFile.puts("<ul>")
-elsif $options.indexByMonth
-  indexHtmlFile.puts("<dl>")
-end
-
-if $options.title and ($options.indexByYear or $options.indexByMonth)
-  htmlTitle = uniToHtml($options.title)
-  indexHtmlFile.puts("<h1>#{htmlTitle}</h1>")
-end
-
-activeFile = indexHtmlFile
-
-$allDays.each_index { |dayIndex|
-  today = $allDays[dayIndex]
-  timestamp = Date.strptime(today, "%Y-%m-%d")
-  messageYear = timestamp.strftime("%Y")
-  messageMonth = timestamp.strftime("%Y-%m")
-  messageDay = timestamp.strftime("%Y-%m-%d")
-
-  activeFile.puts("<hr>")
-
-  if $options.indexByYear
-    yearFileName = "#{messageYear}.html"
-    if messageYear != currentYear
-      if yearFile
-        yearFile.close()
-      end
-      yearFile = HtmlOutputFile.new(yearFileName)
-      yearString = formatYear(timestamp)
-      indexHtmlFile.puts("<li><a href=\"#{yearFileName}\">#{yearString}</a>")
-      activeFile = yearFile
-      currentYear = messageYear
-    end
-    if messageMonth != currentMonth
-      monthName = formatMonth(timestamp)
-      activeFile.puts("<h1 id=\"#{messageMonth}\">#{monthName}</h1>")
-      indexHtmlFile.puts("<a href=\"#{yearFileName}##{messageMonth}\">#{monthName}</a>")
-      currentMonth = messageMonth
-    end
-    activeFile.puts("<h2 id=\"#{messageDay}\">#{formatDay(timestamp)}</h2>")
-  elsif $options.indexByMonth
-    monthFileName = "#{messageMonth}.html"
-    if messageMonth != currentMonth
-      if monthFile
-        monthFile.close()
-      end
-      monthFile = HtmlOutputFile.new(monthFileName)
-      monthString = formatMonth(timestamp)
-      indexHtmlFile.puts("</dd>")
-      if messageYear != currentYear
-        indexHtmlFile.puts("<dt> #{messageYear}")
-        currentYear = messageYear
-      end
-      indexHtmlFile.puts("<dd><a href=\"#{monthFileName}\">#{monthString}</a>")
-      activeFile = monthFile
-      currentMonth = messageMonth
-    end
-    dayOnly = timestamp.strftime("%d")
-    activeFile.puts("<h1 id=\"#{messageDay}\">#{formatDay(timestamp)}</h1>")
-    indexHtmlFile.puts("<a href=\"#{monthFileName}##{messageDay}\">#{dayOnly}</a>")
-  else
-    if messageYear != currentYear
-      activeFile.puts("<h1 id=\"#{messageYear}\">#{messageYear}</h1>")
-      currentYear = messageYear
-    end
-    if messageMonth != currentMonth
-      monthName = formatMonth(timestamp)
-      activeFile.puts("<h2 id=\"#{messageMonth}\">#{monthName}</h2>")
-      currentMonth = messageMonth
-    end
-    activeFile.puts("<h3 id=\"#{messageDay}\">#{formatDay(timestamp)}</h3>")
-  end
-
-  activeFile.puts("<hr>")
-
-  dailyMessages = $messages[today]
-  dailyTimestamps = dailyMessages.keys.sort
-  dailyTimestamps.each { |timestamp|
-    dailyMessages[timestamp].each { |message| processMessage(activeFile.get(), message) }
-  }
-}
-
-if yearFile
-  yearFile.close()
-end
-
-if monthFile
-  monthFile.close()
-end
-
-if dayFile
-  dayFile.close()
-end
-
-if $options.indexByYear
-  indexHtmlFile.puts("</ul>")
-elsif $options.indexByMonth
-  indexHtmlFile.puts("</dd>")
-  indexHtmlFile.puts("</dl>")
-end
-
-indexHtmlFile.close()
-
-#
-# Copy all used emoji files.
-#
-
-if $emojiFiles
-  $emojiFiles.each { |fileName, isUsed|
-    if isUsed
-      emojiBaseName = "emoji_u#{fileName}#{$emojiExt}"
-      inputFileName = $emojiDir.join(emojiBaseName)
-      outputFileName = $outputDir.join(emojiBaseName)
-      IO.copy_stream(inputFileName, outputFileName)
-    end
-  }
-end
