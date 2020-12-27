@@ -51,10 +51,11 @@ the input file. (Only relevant when the input file is an export from Elcomsoft
 Explorer for WhatsApp).
 - `--printChatParticipants` No conversion, just print the names of all
 participants in this chat. (Useful for mapping participant names in a group
-chat with the `--map` option.)`
+chat with the `--map` option.)
 - `--from=yyyy[-mm[-dd]]` Select messages from this date or later.
 - `--to=yyyy[-mm[-dd]]` Select messages from until this date.
-- `--me=<Name>` Identify yourself (can be a partial name).
+- `--me=<Name>` Identify one of the chat participants as yourself (can be
+a partial name).
 - `--map=<sender=Name>` Replace the name of _sender_ (can be a partial)
 with _Name_, e.g., to replace phone numbers with readable names. This
 option can be used multiple times.
@@ -80,12 +81,13 @@ images is generated. The default is 320x240. `(HTML output only)`
 
 ## Notes
 
+When processing chats that were exported from WhatsApp, the `--me` option
+must be given to identify yourself as a chat participant, so that your
+messages are rendered on the right-hand side.
+
 In two-person chats, the name of the sender is not printed.
 
-In two-person chats, if the `--me` option is not given, one of the two
-participants is chosen as "me" (i.e., rendered on the right-hand side).
-
-All formatting is defined by the style sheet `c2h.css` in this directory.
+Most formatting is defined by the style sheet `c2h.css` in this directory.
 
 The style sheet, all media files, and all used emoji images, are copied to the
 output directory, so that it is self-contained.
@@ -138,8 +140,8 @@ used by Threema. Please unzip the ZIP file using software that supports
 AES encryption, such as [7-Zip](https://www.7-zip.org/) to extract the
 ZIP file, then point WhatsAppChatBeautifier to the extracted contents.
 
-In single chats, incoming messages use the sender `<<<`, outgoing messages
-the sender `>>>`.
+In single chats, incoming messages use the sender `<<<`. You can use the
+`--map` option to substitute `<<<` with a different name.
 
 ## Explorer for WhatsApp
 
@@ -154,9 +156,9 @@ This spreadsheet can then be used as an input for WhatsAppChatBeautifier.
 ## Caveats
 
 WhatsApp and Threma use localized strings in its exported chats, such
-as "<attached>" translated to the phone's language to reference attached
-media, and localized timestamps for its messages. Switch your phone to
-English while exporting chats to avoid any localization issues.
+as "&lt;attached&gt;" translated to the phone's language to reference
+attached media, and localized timestamps for its messages. Switch your
+phone to English while exporting chats to avoid any localization issues.
 
 Image captions and quoted messages are not exported by WhatsApp.
 

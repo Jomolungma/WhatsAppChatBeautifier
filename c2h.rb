@@ -166,8 +166,11 @@ inputFiles.each { |inputFileName|
   #
 
   if options.printChatNames
+    if !cp.is_a?(WhatsAppChatBeautifier::ExwaParser)
+      raise "The --chatNames option is only available with Explorer for WhatsApp files."
+    end
     puts("Chat names:")
-    chatNames = cp.getParser().getChatNames()
+    chatNames = cp.getChatNames()
 
     chatNames.each_key { |chatName|
       puts("\t" + chatName)
