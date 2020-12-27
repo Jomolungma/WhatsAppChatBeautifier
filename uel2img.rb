@@ -1,4 +1,4 @@
-#! /bin/ruby
+#! env ruby
 
 #
 # Extract images from the Unicode emoji list and store in a local directory.

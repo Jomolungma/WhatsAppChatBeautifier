@@ -1,18 +1,26 @@
 body {
     background-color: #dadada;
-    /*background: url("flower.jpg");*/
-}
-span.senderId {
-    font-weight: bold;
+    #{backgroundImage}
 }
 h1 {
-    font-weight: bold;
+    width: 80%;
+    clear: both;
+    margin: auto;
+    margin-top: 20px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    background: #000000;
+    color: #ffffff;
     text-align: center;
+    padding: 10px;
 }
 h2 {
-    width: 20%;
+    width: 40%;
+    clear: both;
     margin: auto;
-    border-radius: 7.5px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    border-radius: 8px;
     background: #000000;
     color: #ffffff;
     text-align: center;
@@ -25,30 +33,62 @@ h3 {
 dt {
     font-weight: bold;
 }
+span.senderName {
+    font-weight: bold;
+}
+div.message {
+    width: 96%;
+    margin-left: 2%;
+    margin-right: 2%;
+}
 div.systemMessage {
+    width: 80%;
+    margin-left: 10%;
+    margin-right: 10%;
     font-style: italic;
     background-color: #c0c0c0;
+    text-align: center;
+    clear: both;
+    padding: 10px;
 }
 div.userMessage {
+    clear: both;
     width: 80%;
-    border-radius: 7.5px;
+    border-radius: 8px;
     padding: 10px;
-    margin: 3px;
+    overflow: auto;
+    position: relative;
 }
 div.userMessage-Me {
-    float:right;
     background-color:#dcf8c6;
-    overflow: auto;
+    margin-left: 20%;
 }
 div.userMessage-Them {
-    float:left;
     background-color:#ffffff;
-    overflow: auto;
+    margin-right: 20%;
 }
 div.timestamp {
-    float:right;
+    text-align: right;
+    position: absolute;
+    bottom: 2px;
+    right: 5px;
     font-size: 70%;
 }
 div.overflow {
     overflow: auto;
+}
+img.inlineImage {
+    max-width: #{imageWidth}px;
+    max-height: #{imageHeight}px;
+}
+img.inlineEmoji {
+    width: 20px;
+    height: 20px;
+}
+img.standaloneEmoji {
+    width: 40px;
+    height: 40px;
+}
+video {
+    width: 320px;
 }
