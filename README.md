@@ -94,7 +94,7 @@ output directory, so that it is self-contained.
 
 ## Emojis
 
-There are two options for handling emoticons that may be part of a conversation.
+There are multiple options for handling emoticons that may be part of a conversation.
 By default, emoticons are left as-is, as their original unicode characters, so
 that the Web browser should render them. However, this does not always work
 properly due to lack of browser support or missing emoticons in your installed
@@ -155,7 +155,7 @@ This spreadsheet can then be used as an input for WhatsAppChatBeautifier.
 
 ## Caveats
 
-WhatsApp and Threma use localized strings in its exported chats, such
+WhatsApp and Threma use localized strings in their exported chats, such
 as "&lt;attached&gt;" translated to the phone's language to reference
 attached media, and localized timestamps for its messages. Switch your
 phone to English while exporting chats to avoid any localization issues.
