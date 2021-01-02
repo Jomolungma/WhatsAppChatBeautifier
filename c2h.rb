@@ -193,13 +193,13 @@ inputFiles.each { |inputFileName|
     end
 
     selectedChat = cp.matchChatName(options.chatName)
+    raise "Oops, chat \"#{options.chatName}\" not found." if !selectedChat
 
     if options.verbose
-      print("Selecting chat \"" + selectedChat + "\" ... ")
+      print("Selecting chat \"#{selectedChat}\" ... ")
       $stdout.flush
     end
 
-    raise "Oops, chat not found." if !selectedChat
     cp.select(selectedChat)
 
     puts("done.")
