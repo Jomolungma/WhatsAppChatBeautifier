@@ -28,12 +28,10 @@ module WhatsAppChatBeautifier
 
     def load(xlsxData, from=nil, to=nil)
       book = RubyXL::Parser::parse_buffer(xlsxData)
-      if book.worksheets.count != 1 or book.worksheets[0].sheet_name != 'Messages'
-        raise "Oops, expected a single worksheet \"Messages\""
-      end
       @sheet = book['Messages']
       @from = from
       @to = to
+      raise "Oops, worksheet \"Messages\" not found." if !@sheet
       raise "Oops, expected the text \"Messages\" in cell B1" if @sheet[0][1].value != "Messages"
     end
 
