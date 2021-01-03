@@ -150,7 +150,7 @@ log = WhatsAppChatBeautifier::ConsoleOutput.new(options.verbose)
 #
 
 inputFiles.each { |inputFileName|
-  log.begin("Loading chat from \"#{inputFileName}\" ... ")
+  log.begin("Loading chat from \"#{inputFileName}\"")
   inputFile = WhatsAppChatBeautifier.openInput(inputFileName)
   cp = WhatsAppChatBeautifier.parseChat(inputFile, options.me, options.from, options.to)
   log.end()
@@ -189,7 +189,7 @@ inputFiles.each { |inputFileName|
     selectedChat = cp.matchChatName(options.chatName)
     raise "Oops, chat \"#{options.chatName}\" not found." if !selectedChat
 
-    log.begin("Selecting chat \"#{selectedChat}\" ... ")
+    log.begin("Selecting chat \"#{selectedChat}\"")
     cp.select(selectedChat)
     log.end()
   end

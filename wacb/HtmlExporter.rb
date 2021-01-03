@@ -280,6 +280,7 @@ module WhatsAppChatBeautifier
     @@cssBaseName = "c2h.css"
 
     def initialize(outputDir, messages, options)
+      require 'uri'
       setDefaultOptions(options)
       @messages = messages
       @outputDir = outputDir
