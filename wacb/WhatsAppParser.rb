@@ -39,7 +39,7 @@ module WhatsAppChatBeautifier
       #
 
       timestampMatch = messageLine.match('(\[)?(\d{2}.\d{2}.\d{2}, \d{2}:\d{2}:\d{2})(\])?(:)?')
-      raise "Oops" if timestampMatch == nil
+      raise "Line does not start with a timestamp: \"#{messageLine}\"" if timestampMatch == nil
 
       timestamp = DateTime.strptime(timestampMatch[2].strip, "%d.%m.%y, %H:%M:%S")
 

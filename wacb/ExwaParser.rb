@@ -38,18 +38,19 @@ module WhatsAppChatBeautifier
     def matchChatName(subChatName)
       chatNames = getChatNames
       chatNames.keys.each { |chatName|
-        return chatName if chatName.include?(subChatName)
+        return chatName if chatName.downcase().include?(subChatName.downcase())
       }
       return nil
     end
 
     def select(selectedChatName)
+      selectedChatName = selectedChatName.downcase()
       @selected = true
       @sheet.sheet_data.rows.each { |row|
         rowIndex = row.index_in_collection - @@nonMessageTopRows
         next if rowIndex < 0
         next if !row[1]
-        chatName = getChatNameFromRow(row)
+        chatName = getChatNameFromRow(row).downcase()
         if chatName.include?(selectedChatName)
           message = parseMessage(rowIndex)
           next if @from and message[:timestamp].to_date < @from

@@ -12,7 +12,7 @@ module WhatsAppChatBeautifier
       @verbose = verbose
     end
     def begin(info)
-      if @verbose
+      if @verbose > 0
         print(info)
         print(" ... ")
         $stdout.flush
@@ -20,7 +20,7 @@ module WhatsAppChatBeautifier
     end
 
     def end()
-      if @verbose
+      if @verbose > 0
         puts("done.")
       end
     end

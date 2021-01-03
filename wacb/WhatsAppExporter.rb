@@ -33,10 +33,9 @@ module WhatsAppChatBeautifier
       allMessages = @messages.getMessages()
       @options[:log].begin("Writing #{allMessages.size()} messages to \"_chat.txt\"")
       chatTxt = messages2chat(allMessages)
+      chatTxt.force_encoding("UTF-8")
       chatFileName = @outputDir.join("_chat.txt")
-      chatFile = File.open(chatFileName, "w:UTF-8")
-      chatFile.write(chatTxt)
-      chatFile.close()
+      IO.binwrite(chatFileName, chatTxt)
       @options[:log].end()
       exportAttachments(allMessages) if @options[:attachments]
     end
@@ -72,7 +71,7 @@ module WhatsAppChatBeautifier
       raise "Oops at " + timestamp if !message[:message] and !message[:attachment]
 
       if message[:message]
-        line << message[:message]
+        line << message[:message].gsub("\r\n", "\n")
       else
         @numAttachments = @numAttachments + 1
         inputFileName = Pathname.new(message[:attachment])

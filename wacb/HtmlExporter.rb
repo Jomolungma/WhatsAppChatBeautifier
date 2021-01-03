@@ -164,11 +164,15 @@ module WhatsAppChatBeautifier
       while i = messageText.index('&')
         if i != 0
           output << messageText[0..i-1]
+          messageText = messageText[i..-1]
           haveRegularText = true
         end
 
-        codepoints, remainder = eatConsecutiveUnicode(messageText[i..-1])
+        codepoints, remainder = eatConsecutiveUnicode(messageText)
         codepoints.delete_if { |cp| (cp >= 65024)  and (cp <= 65039)  } # Delete variation selectors.
+
+        # After uniToHtml, there should not be any stray ampersands.
+        raise "Oops: \"#{messageText[i..-1]}\"" if codepoints.length == 0
 
         while codepoints.length > 0
           hexCodepoints = codepoints.map { |cp| sprintf("%x",cp) }      # Map to hexadecimal.
@@ -591,7 +595,8 @@ module WhatsAppChatBeautifier
         i = i + 1
       end
       html.concat(messageText[s..-1])
-      html.gsub("\n", "<br>")
+      html.gsub!("\n", "<br>")
+      return html
     end
 
     #
@@ -601,8 +606,7 @@ module WhatsAppChatBeautifier
     def replaceUrlsWithLinks(messageText)
       s = 0
       result = ""
-      urlRegex = "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
-      while urlMatch = messageText.match(urlRegex, s)
+      while urlMatch = messageText.match(URI.regexp, s)
         if urlMatch.begin(0) > s
           result.concat(messageText[s..urlMatch.begin(0)-1])
         end
@@ -613,7 +617,8 @@ module WhatsAppChatBeautifier
         result.concat("</a>")
         s = urlMatch.end(0)
       end
-      return result.concat(messageText[s..-1])
+      result.concat(messageText[s..-1])
+      return result
     end
 
     #
@@ -702,8 +707,12 @@ module WhatsAppChatBeautifier
       # large images down to our "thumbnail" size.
       #
 
-      imageStream = inputFile.openAttachment(attachmentName)
-      imgFile, imgWidth, imgHeight = WhatsAppChatBeautifier.imageSize(imageStream)
+      begin
+        imageStream = inputFile.openAttachment(attachmentName)
+        imgFile, imgWidth, imgHeight = WhatsAppChatBeautifier.imageSize(imageStream)
+      rescue Exception
+        imgFile = nil
+      end
 
       if imgFile == nil
         html = "<img class=\"inlineImage\" src=\"#{outputFileName}\">"

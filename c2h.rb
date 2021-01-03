@@ -143,23 +143,17 @@ end
 
 allMessages = WhatsAppChatBeautifier::Messages.new()
 allMessages.setSenderMap(options.senderMap)
+log = WhatsAppChatBeautifier::ConsoleOutput.new(options.verbose)
 
 #
 # Load input files.
 #
 
 inputFiles.each { |inputFileName|
-  if options.verbose
-    print("Loading chat from \"" + inputFileName + "\" ... ")
-    $stdout.flush
-  end
-
+  log.begin("Loading chat from \"#{inputFileName}\" ... ")
   inputFile = WhatsAppChatBeautifier.openInput(inputFileName)
   cp = WhatsAppChatBeautifier.parseChat(inputFile, options.me, options.from, options.to)
-
-  if options.verbose
-    puts("done.")
-  end
+  log.end()
 
   #
   # Print chat names.
@@ -195,14 +189,9 @@ inputFiles.each { |inputFileName|
     selectedChat = cp.matchChatName(options.chatName)
     raise "Oops, chat \"#{options.chatName}\" not found." if !selectedChat
 
-    if options.verbose
-      print("Selecting chat \"#{selectedChat}\" ... ")
-      $stdout.flush
-    end
-
+    log.begin("Selecting chat \"#{selectedChat}\" ... ")
     cp.select(selectedChat)
-
-    puts("done.")
+    log.end()
   end
 
   #
@@ -263,7 +252,7 @@ when :Html
     :imageHeight => options.imageHeight,
     :attachments => options.attachments,
     :renameAttachments => options.renameAttachments,
-    :log => WhatsAppChatBeautifier::ConsoleOutput.new(options.verbose)
+    :log => log
   }
 
   wace = WhatsAppChatBeautifier::HtmlExporter.new(outputDir, allMessages, htmlExporterOptions)
@@ -274,7 +263,7 @@ when :Chat
     :me => options.me,
     :attachments => options.attachments,
     :renameAttachments => options.renameAttachments,
-    :log => WhatsAppChatBeautifier::ConsoleOutput.new(options.verbose)
+    :log => log
   }
 
   wace = WhatsAppChatBeautifier::WhatsAppExporter.new(outputDir, allMessages, whatsAppExporterOptions)
