@@ -23,9 +23,9 @@ module WhatsAppChatBeautifier
         }
       end
       if files.size == 0
-        raise "No .txt or .xlsx files in directory \"" + dirName + "\""
+        raise "No .txt or .xlsx files in directory \"#{dirName.to_s}\""
       elsif files.size > 1
-        raise "More than one .txt or .xlsx files in directory \"" + dirName + "\""
+        raise "More than one .txt or .xlsx files in directory \"#{dirName.to_s}\""
       end
 
       @inputFile = @inputDir.join(files[0])
@@ -78,9 +78,9 @@ module WhatsAppChatBeautifier
       xlsxFiles = @zipFile.glob('**/*.xlsx')
       textFiles = @zipFile.glob('**/*.txt')
       if xlsxFiles.size == 0 and textFiles.size == 0
-        raise "No .txt or .xlsx files in zip \"" + inputPath.to_s + "\""
+        raise "No .txt or .xlsx files in zip \"#{inputPath.to_s}\""
       elsif xlsxFiles.size + textFiles.size > 1
-        raise "More than one .txt and .xlsx files in zip \"" + inputPath.to_s + "\""
+        raise "More than one .txt and .xlsx files in zip \"#{inputPath.to_s}\""
       elsif xlsxFiles.size == 1
         @inputFile = xlsxFiles[0]
         @fileType = :Xlsx

@@ -161,10 +161,11 @@ module WhatsAppChatBeautifier
       lastEmojiWasText = true
       haveRegularText = false
 
-      while i = messageText.index('&')
-        if i != 0
-          output << messageText[0..i-1]
-          messageText = messageText[i..-1]
+      while match = messageText.match("&#[0-9]+;")
+        s = match.begin(0)
+        if s != 0
+          output << messageText[0..s-1]
+          messageText = messageText[s..-1]
           haveRegularText = true
         end
 
@@ -601,33 +602,33 @@ module WhatsAppChatBeautifier
     end
 
     #
-    # Replace URLs in a message text with links to that URL.
+    # Format message content.
+    # - Replace URLs in a message text with links to that URL.
+    # - Encode unicode or unprintable characters with &#<nn>; codepoints.
+    # - Replace emojis with inline images if desired.
     #
 
-    def replaceUrlsWithLinks(messageText)
+    def formatMessageText(messageText)
       s = 0
       result = ""
       while urlMatch = messageText.match(URI.regexp, s)
         if urlMatch.begin(0) > s
-          result.concat(messageText[s..urlMatch.begin(0)-1])
+          result.concat(uniToHtml(messageText[s..urlMatch.begin(0)-1]))
         end
-        result.concat("<a href=\"")
-        result.concat(urlMatch[0]);
-        result.concat("\">")
-        result.concat(urlMatch[0])
-        result.concat("</a>")
+        linkable = ((urlMatch[1] == "http") or (urlMatch[1] == "https"))
+        if linkable == true
+          result.concat("<a href=\"")
+          result.concat(urlMatch[0])
+          result.concat("\">")
+        end
+        result.concat(uniToHtml(urlMatch[0]))
+        if linkable
+          result.concat("</a>")
+        end
         s = urlMatch.end(0)
       end
-      result.concat(messageText[s..-1])
-      return result
-    end
-
-    #
-    # Format message content.
-    #
-
-    def formatMessageText(messageText)
-      return @emojiHelper.replaceEmojisWithImages(replaceUrlsWithLinks(uniToHtml(messageText)))
+      result.concat(uniToHtml(messageText[s..-1]))
+      return @emojiHelper.replaceEmojisWithImages(result)
     end
 
     #
