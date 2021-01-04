@@ -285,8 +285,8 @@ module WhatsAppChatBeautifier
       setDefaultOptions(options)
       @messages = messages
       @outputDir = outputDir
-      @numAttachments = 0
       @attachmentCounter = 0
+      @attachments = Array.new
       @emojiHelper = EmojiHelper.new(@options[:emojiDir])
       @senderIds = @messages.getSenders
     end
@@ -350,6 +350,14 @@ module WhatsAppChatBeautifier
         @options[:log].begin("Copying #{used} used emoji files")
         @emojiHelper.copyUsedEmojiFiles(@outputDir)
         @options[:log].end()
+      end
+
+      #
+      # Copy attachments.
+      #
+
+      if @options[:attachments]
+        exportAttachments()
       end
     end
 
@@ -551,6 +559,28 @@ module WhatsAppChatBeautifier
             file.puts(html)
           }
         }
+      }
+    end
+
+    def exportAttachments()
+      attachmentIndex = 0
+      attachmentCount = @attachments.size
+      @attachments.each { | inputFile, attachmentName, outputPath |
+        attachmentIndex = attachmentIndex + 1
+        info = @options[:attachments] == :Copy ? "Copying" : "Moving"
+        info << " attachment #{attachmentIndex} / #{attachmentCount}: "
+        info << Pathname.new(attachmentName).basename.to_s
+        @options[:log].begin(info)
+
+        if @options[:attachments] == :Copy
+          inputFile.copyAttachment(attachmentName, outputPath)
+        elsif @options[:attachments] == :Move
+          inputFile.moveAttachment(attachmentName, outputPath)
+        elsif @options[:attachments] != nil
+          raise "Oops"
+        end
+
+        @options[:log].end()
       }
     end
 
@@ -789,14 +819,7 @@ module WhatsAppChatBeautifier
         html = processGenericAttachmentMessage(attachmentName, outputFileName)
       end
 
-      if @options[:attachments] == :Copy
-        message[:inputFile].copyAttachment(attachmentName, outputPath)
-      elsif @options[:attachments] == :Move
-        message[:inputFile].moveAttachment(attachmentName, outputPath)
-      elsif @options[:attachments] != nil
-        raise "Oops"
-      end
-
+      @attachments << [ message[:inputFile], attachmentName, outputPath ]
       return html
     end
 
