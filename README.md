@@ -1,11 +1,11 @@
 # WhatsAppChatBeautifier
 
-WhatsAppChatBeautifier is a tool to render WhatsApp and Threema chats into
+WhatsAppChatBeautifier is a tool to render WhatsApp and Threema chats as
 HTML.
 
-WhatsApp and Threema allow exporting chat histories in ZIP format.
-WhatsAppChatBeautifier reads this exported chat and formats it as HTML
-for viewing, archiving or printing.
+WhatsApp and Threema allow exporting chat histories in ZIP format (see
+below for more details.) WhatsAppChatBeautifier reads these files and
+converts them to HTML for viewing, archiving or printing.
 
 ## Prerequisites
 
@@ -130,6 +130,34 @@ WhatsApp conversations. These images have been downloaded from
 [Pixabay](https://pixabay.com/de/). Images and Videos on Pixabay are
 released under Creative Commons CC0.
 
+## Whats App
+
+The WhatsApp app has an "Export chat" feature that allows exporting
+individual chats. On Android, the exported chat can be saved to Google
+Drive, where it can be downloaded. On iPhone, the exported chat can be
+saved to iCloud, where it can be downloaded using a Browser, or saved
+to "Files", where it can be copied to your PC using iTunes.
+
+Note: do not send the exported chat by mail, because that will include
+only the most recent media files. Exporting to cloud or file will include
+all attachments.
+
+If the above process does not appeal to you, if it does not work for
+you (e.g., because your storage is full), or if the "Export chat"
+feature is not available to you (WhatsApp has restricted the "Export
+chat" feature in some locations, e.g., in Germany), then Explorer
+for WhatsApp can be used as an alternative (see below).
+
+## Explorer for WhatsApp
+
+The WhatsApp export feature is limited in size and functionality, and
+restricted in some locations. The commercial software product
+[Elcomsoft Explorer for WhatsApp](https://www.elcomsoft.de/exwa.html)
+is available to extract the entire WhatsApp database. The contents of
+the WhatsApp database (i.e., all conversations and attached media) can
+be exported from Explorer for WhatsApp as a spreadsheet ("XLSX").
+This spreadsheet can then be used as an input for WhatsAppChatBeautifier.
+
 ## Threema
 
 WhatsAppChatBeautifier also includes preliminary support for single chats
@@ -142,16 +170,6 @@ ZIP file, then point WhatsAppChatBeautifier to the extracted contents.
 
 In single chats, incoming messages use the sender `<<<`. You can use the
 `--map` option to substitute `<<<` with a different name.
-
-## Explorer for WhatsApp
-
-The WhatsApp export feature is limited in size and functionality, and
-restricted in some locations. The commercial software product
-[Elcomsoft Explorer for WhatsApp](https://www.elcomsoft.de/exwa.html)
-is available to extract the entire WhatsApp database. The contents of
-the WhatsApp database (i.e., all conversations and attached media) can
-be exported from Explorer for WhatsApp as a spreadsheet ("XLSX").
-This spreadsheet can then be used as an input for WhatsAppChatBeautifier.
 
 ## Caveats
 
