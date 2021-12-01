@@ -38,10 +38,12 @@ module WhatsAppChatBeautifier
       # unicode character.
       #
 
-      timestampMatch = messageLine.match('(\[)?(\d{2}.\d{2}.\d{2}, \d{2}:\d{2}:\d{2})(\])?(:)?')
+      timestampMatch = messageLine.match('(\[)?(\d{1,2}.\d{1,2}.\d{1,2}, \d{1,2}:\d{1,2}:\d{1,2})(\])?(:)?')
       raise "Line does not start with a timestamp: \"#{messageLine}\"" if timestampMatch == nil
 
-      timestamp = DateTime.strptime(timestampMatch[2].strip, "%d.%m.%y, %H:%M:%S")
+      timestamp = DateTime.strptime(timestampMatch[2].strip
+                                      .gsub(/\//, { '/' => '.' }),
+                                    "%d.%m.%y, %H:%M:%S")
 
       #
       # After the timestamp, there is usually the sender ID followed by a ":",
@@ -77,13 +79,17 @@ module WhatsAppChatBeautifier
       # export feature.
       #
 
-      attachmentMatch = message.match('([0-9A-Za-z\- ]+\.[A-Za-z0-9]+).*<[^\s>]+>')
+      for attachmentRegex in ['([0-9A-Za-z\- ]+\.[A-Za-z0-9]+).*<[^\s>]+>',
+                              '<attached: (\S+)>'] do
+        attachmentMatch = message.match(attachmentRegex)
 
-      if attachmentMatch != nil
-        message = nil
-        attachmentFileName = attachmentMatch[1]
-      else
-        attachmentFileName = nil
+        if attachmentMatch != nil
+          message = nil
+          attachmentFileName = attachmentMatch[1]
+          break
+        else
+          attachmentFileName = nil
+        end
       end
 
       return {
