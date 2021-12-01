@@ -44,7 +44,6 @@ module WhatsAppChatBeautifier
       # I'm guessing exports are locale-specific so some amount of massaging is needed
       timestampRaw = timestampMatch[2].strip.gsub(/\//, { '/' => '.' })
 
-
       # TODO: add command-line option to specify if we are DD/MM/YY or MM/DD/YY;
       # or just deduce it by scanning the chat file looking for MM >12
       if timestampMatch[3] != nil
@@ -54,7 +53,6 @@ module WhatsAppChatBeautifier
       end
 
       timestamp = DateTime.strptime(timestampRaw, strpFormat)
-      puts "parsed " + timestamp.inspect
      
       #
       # After the timestamp, there is usually the sender ID followed by a ":",
