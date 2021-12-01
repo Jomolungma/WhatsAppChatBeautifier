@@ -38,13 +38,24 @@ module WhatsAppChatBeautifier
       # unicode character.
       #
 
-      timestampMatch = messageLine.match('(\[)?(\d{1,2}.\d{1,2}.\d{1,2}, \d{1,2}:\d{1,2}:\d{1,2})(\])?(:)?')
+      timestampMatch = messageLine.match('(\[)?(\d{1,2}.\d{1,2}.\d{1,2}, \d{1,2}:\d{1,2}:\d{1,2}( [AP]M)?)(\])?(:)?')
       raise "Line does not start with a timestamp: \"#{messageLine}\"" if timestampMatch == nil
 
-      timestamp = DateTime.strptime(timestampMatch[2].strip
-                                      .gsub(/\//, { '/' => '.' }),
-                                    "%d.%m.%y, %H:%M:%S")
+      # I'm guessing exports are locale-specific so some amount of massaging is needed
+      timestampRaw = timestampMatch[2].strip.gsub(/\//, { '/' => '.' })
 
+
+      # TODO: add command-line option to specify if we are DD/MM/YY or MM/DD/YY;
+      # or just deduce it by scanning the chat file looking for MM >12
+      if timestampMatch[3] != nil
+        strpFormat = "%d.%m.%y, %H:%M:%S %p"
+      else
+        strpFormat = "%d.%m.%y, %H:%M:%S"
+      end
+
+      timestamp = DateTime.strptime(timestampRaw, strpFormat)
+      puts "parsed " + timestamp.inspect
+     
       #
       # After the timestamp, there is usually the sender ID followed by a ":",
       # except for system messages. Assumption: system messages never contain
