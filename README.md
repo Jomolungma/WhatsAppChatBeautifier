@@ -7,6 +7,12 @@ WhatsApp and Threema allow exporting chat histories in ZIP format (see
 below for more details.) WhatsAppChatBeautifier reads these files and
 converts them to HTML for viewing, archiving or printing.
 
+Note: See also [WhatsApp Chat Browser](https://github.com/Jomolungma/WhatsAppChatBrowser),
+the successor to this project. It opens WhatsApp chat histories, does
+the HTML conversion on the fly, and serves theHTML using a built-in
+Web server, thus avoiding the need for separate extraction and conversion
+step.
+
 ## Prerequisites
 
 WhatsAppChatBeautifier requires Ruby, and optionally the "rubyzip" and
@@ -181,3 +187,11 @@ phone to English while exporting chats to avoid any localization issues.
 Image captions and quoted messages are not exported by WhatsApp.
 
 Dates are rendered in English, e.g., "April 13, 2018".
+
+# See Also
+
+See also [WhatsApp Chat Browser](https://github.com/Jomolungma/WhatsAppChatBrowser),
+the successor to this project. It opens WhatsApp chat histories, does
+the HTML conversion on the fly, and serves the HTML using a built-in
+Web server, thus avoiding the need for separate extraction and conversion
+step.
