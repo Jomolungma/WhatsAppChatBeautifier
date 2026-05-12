@@ -9,7 +9,7 @@ converts them to HTML for viewing, archiving or printing.
 
 Note: See also [WhatsApp Chat Browser](https://github.com/Jomolungma/WhatsAppChatBrowser),
 the successor to this project. It opens WhatsApp chat histories, does
-the HTML conversion on the fly, and serves theHTML using a built-in
+the HTML conversion on the fly, and serves the HTML using a built-in
 Web server, thus avoiding the need for separate extraction and conversion
 step.
 
